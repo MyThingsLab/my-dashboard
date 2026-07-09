@@ -1,0 +1,40 @@
+[shelves.development_harness]
+label = "Development harness"
+repos = [
+  "my-things-core",
+  "my-template",
+  "my-planner",
+  "my-orchestrator",
+  "my-tester",
+  "my-changelogger",
+  "my-projector",
+  "my-reporter",
+  "my-guard",
+  "my-todo",
+  "my-docs",
+  "my-dashboard",
+  "fleet-dispatch",
+]
+
+[shelves.services]
+label = "Services"
+repos = [
+  "my-server",
+  "my-telegram-bot",
+  "mythingslab.github.io",
+]
+
+[shelves.casual_development]
+label = "Casual development"
+repos = [
+  "my-typster",
+  "my-presentation",
+  "my-researcher",
+  "my-uni",
+  "my-site",
+  "my-searcher",
+  "my-scraper",
+  "my-archivist",
+  "my-librarian",
+  "my-idea",
+]
