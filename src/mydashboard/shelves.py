@@ -11,11 +11,15 @@ class Shelf:
     key: str
     label: str
     repos: tuple[str, ...]
+    what: str | None = None
 
 
 @dataclass(frozen=True)
 class Shelving:
     shelves: tuple[Shelf, ...]
+
+    def taglines(self) -> dict[str, str]:
+        return {shelf.label: shelf.what for shelf in self.shelves if shelf.what}
 
     def classify(self, repos: list[str]) -> tuple[dict[str, list[str]], list[str]]:
         """Split ``repos`` into {shelf label: repo names} plus the unshelved leftover."""
@@ -40,7 +44,12 @@ def load_shelves(path: str | Path | None = None) -> Shelving:
         text = resources.files("mydashboard").joinpath("shelves.toml").read_text(encoding="utf-8")
     obj = tomllib.loads(text)
     shelves = tuple(
-        Shelf(key=key, label=body["label"], repos=tuple(body.get("repos", [])))
+        Shelf(
+            key=key,
+            label=body["label"],
+            repos=tuple(body.get("repos", [])),
+            what=body.get("what"),
+        )
         for key, body in obj.get("shelves", {}).items()
     )
     return Shelving(shelves=shelves)

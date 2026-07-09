@@ -7,6 +7,7 @@ from mydashboard.shelves import load_shelves
 FIXTURE = """
 [shelves.harness]
 label = "Harness"
+what = "runs the cycle"
 repos = ["my-a", "my-b"]
 
 [shelves.casual]
@@ -24,6 +25,7 @@ def test_classify_splits_mapped_and_unshelved(tmp_path: Path) -> None:
 
     assert mapped == {"Harness": ["my-a", "my-b"], "Casual": ["my-c"]}
     assert unshelved == ["my-mystery"]
+    assert shelving.taglines() == {"Harness": "runs the cycle"}  # shelves without `what` omitted
 
 
 def test_load_default_shelves_covers_known_tools() -> None:

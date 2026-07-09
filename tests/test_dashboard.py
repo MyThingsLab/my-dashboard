@@ -58,10 +58,10 @@ def test_render_happy_path_opens_pr(tmp_path: Path) -> None:
     assert result.outcome == "success"
     assert result.pr == 9
     subprocess.run(["git", "-C", str(site), "fetch", "-q", "origin"], check=True)
-    page = _show(site, "origin/my-dashboard/render:dashboard/index.md")
-    assert "## Development harness" in page
+    page = _show(site, "origin/my-dashboard/render:dashboard/index.html")
+    assert "<h2>Development harness</h2>" in page
     assert "my-a" in page and "my-b" in page
-    assert "## Unshelved" in page and "- my-mystery" in page
+    assert "<h2>Unshelved</h2>" in page and "my-mystery" in page
 
     recorded = list(Ledger(tmp_path / "led.jsonl"))
     assert recorded[-1].tool == "mydashboard" and recorded[-1].kind == "dashboard_render"
@@ -106,6 +106,36 @@ def test_render_skipped_when_page_unchanged(tmp_path: Path) -> None:
     assert second.pr is None
 
 
+def test_render_removes_the_legacy_markdown_page(tmp_path: Path) -> None:
+    site = make_site_repo(tmp_path)
+    legacy = site / "dashboard" / "index.md"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("# old markdown dashboard\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(site), "add", "dashboard/index.md"], check=True)
+    subprocess.run(
+        ["git", "-C", str(site), "commit", "-q", "-m", "seed legacy page"], check=True
+    )
+    subprocess.run(["git", "-C", str(site), "push", "-q", "origin", "main"], check=True)
+    shelves = tmp_path / "shelves.toml"
+    shelves.write_text(_SHELVES, encoding="utf-8")
+    fake = _fake_fleet(["my-a", "my-b"])
+    dashboard = Dashboard(
+        repo_root=site,
+        repo="MyThingsLab/mythingslab.github.io",
+        ledger=Ledger(tmp_path / "led.jsonl"),
+        shelves_path=shelves,
+        runner=fake,
+    )
+
+    result = dashboard.render()
+
+    assert result.outcome == "success"
+    subprocess.run(["git", "-C", str(site), "fetch", "-q", "origin"], check=True)
+    listing = _show(site, "origin/my-dashboard/render:dashboard")
+    assert "index.html" in listing
+    assert "index.md" not in listing
+
+
 def test_render_summarize_with_noop_omits_banner(tmp_path: Path) -> None:
     site = make_site_repo(tmp_path)
     shelves = tmp_path / "shelves.toml"
@@ -123,9 +153,9 @@ def test_render_summarize_with_noop_omits_banner(tmp_path: Path) -> None:
     result = dashboard.render(summarize=True)
 
     subprocess.run(["git", "-C", str(site), "fetch", "-q", "origin"], check=True)
-    page = _show(site, "origin/my-dashboard/render:dashboard/index.md")
+    page = _show(site, "origin/my-dashboard/render:dashboard/index.html")
     assert result.outcome == "success"
-    assert "## Summary" not in page  # NoopEngine's empty reply -> banner omitted
+    assert "State of the fleet:" not in page  # NoopEngine's empty reply -> banner omitted
 
 
 def test_status_reads_local_checkout_and_records_ledger(tmp_path: Path) -> None:
