@@ -1,5 +1,6 @@
 [shelves.development_harness]
 label = "Development harness"
+what = "runs the autonomous cycle"
 repos = [
   "my-things-core",
   "my-template",
@@ -18,6 +19,7 @@ repos = [
 
 [shelves.services]
 label = "Services"
+what = "stays up, gets consumed"
 repos = [
   "my-server",
   "my-telegram-bot",
@@ -26,6 +28,7 @@ repos = [
 
 [shelves.casual_development]
 label = "Casual development"
+what = "make or learn something"
 repos = [
   "my-typster",
   "my-presentation",

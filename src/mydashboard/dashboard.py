@@ -14,11 +14,13 @@ from mythings.ledger import Ledger
 from mythings.policy import Action, Decision, Policy
 
 from mydashboard.fleet import ORG, RepoStatus, gather_status, list_org_repos
-from mydashboard.render import render_org_page, render_repo_card
+from mydashboard.render import render_org_page, render_org_table, render_repo_card
 from mydashboard.shelves import Shelving, load_shelves
 
 DEFAULT_SITE = "MyThingsLab/mythingslab.github.io"
-_PAGE_PATH = "dashboard/index.md"
+_PAGE_DIR = "dashboard"
+_PAGE_PATH = "dashboard/index.html"
+_LEGACY_PAGE = "dashboard/index.md"
 
 _BANNER_SYSTEM = (
     "Write a two-sentence 'state of the fleet' banner from this deterministic "
@@ -81,9 +83,12 @@ class Dashboard:
         }
         mapped, unshelved_names = self.shelving.classify(names)
         shelved = {label: [statuses[n] for n in repo_names] for label, repo_names in mapped.items()}
+        unshelved = [statuses[n] for n in sorted(unshelved_names)]
 
         banner = self._banner(shelved) if summarize else None
-        page = render_org_page(shelved, unshelved_names, banner=banner)
+        page = render_org_page(
+            shelved, unshelved, banner=banner, taglines=self.shelving.taglines()
+        )
         page_hash = hashlib.sha256(page.encode("utf-8")).hexdigest()
 
         try:
@@ -119,7 +124,7 @@ class Dashboard:
     def _banner(self, shelved: dict[str, list[RepoStatus]]) -> str | None:
         if self.engine is None:
             return None
-        table = render_org_page(shelved, [])
+        table = render_org_table(shelved)
         reply = self.engine.run(EngineRequest(prompt=table, system=_BANNER_SYSTEM)).text.strip()
         return reply or None
 
@@ -130,6 +135,9 @@ class Dashboard:
             target = tree / _PAGE_PATH
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(page, encoding="utf-8")
+            legacy = tree / _LEGACY_PAGE
+            if legacy.exists():
+                legacy.unlink()
             if not self._has_changes(tree):
                 return None, False
             pr = self._open_pr(tree)
@@ -137,7 +145,7 @@ class Dashboard:
 
     def _has_changes(self, tree: Path) -> bool:
         proc = subprocess.run(
-            ["git", "-C", str(tree), "status", "--porcelain", "--", _PAGE_PATH],
+            ["git", "-C", str(tree), "status", "--porcelain", "--", _PAGE_DIR],
             capture_output=True,
             text=True,
         )
@@ -147,7 +155,7 @@ class Dashboard:
         branch = "my-dashboard/render"
         existing = self._existing_pr(branch)
         self._git(tree, ["checkout", "-B", branch])
-        self._git(tree, ["add", _PAGE_PATH])
+        self._git(tree, ["add", "-A", "--", _PAGE_DIR])
         self._git(tree, ["commit", "-m", "docs: refresh fleet dashboard"])
         if existing is None:
             self._git(tree, ["push", "-u", "origin", branch])
