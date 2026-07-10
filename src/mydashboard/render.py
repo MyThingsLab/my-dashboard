@@ -21,6 +21,16 @@ _CI_PILL = {
     CIStatus.NONE: ("", "— CI"),
 }
 
+_CI_SORT_RANK = {
+    CIStatus.FAILURE: 0,
+    CIStatus.PENDING: 1,
+    CIStatus.NONE: 2,
+    CIStatus.SUCCESS: 3,
+}
+
+_STALE_DAYS = 30
+_VERY_STALE_DAYS = 90
+
 _STYLE = resources.files("mydashboard").joinpath("dashboard.css").read_text(encoding="utf-8")
 
 _FOOTER = (
@@ -64,6 +74,9 @@ def _card(status: RepoStatus, *, unshelved: bool = False) -> str:
         _pill(f"{status.open_prs} PR", "warn" if status.open_prs else ""),
         _pill(f"{status.open_issues} issue" + ("" if status.open_issues == 1 else "s")),
     ]
+    if status.last_activity_days is not None and status.last_activity_days >= _STALE_DAYS:
+        stale_tone = "crit" if status.last_activity_days >= _VERY_STALE_DAYS else "warn"
+        pills.append(_pill(f"stale {status.last_activity_days}d", stale_tone))
     if unshelved:
         pills.append(_pill("⚠ not in shelves.toml", "warn"))
     purpose = html.escape(status.purpose) if status.purpose else "(no purpose seam found)"
@@ -78,9 +91,16 @@ def _card(status: RepoStatus, *, unshelved: bool = False) -> str:
       </div>"""
 
 
+def _sort_key(status: RepoStatus) -> tuple[int, int, str]:
+    days = status.last_activity_days
+    staleness_rank = -days if days is not None else 1
+    return (_CI_SORT_RANK[status.ci], staleness_rank, status.name)
+
+
 def _shelf(
     label: str, statuses: list[RepoStatus], *, what: str | None = None, unshelved: bool = False
 ) -> str:
+    statuses = sorted(statuses, key=_sort_key)
     count = f"{len(statuses)} tool" + ("" if len(statuses) == 1 else "s")
     what_span = f'\n      <span class="what">{html.escape(what)}</span>' if what else ""
     callout = (
@@ -144,6 +164,7 @@ def render_org_page(
     *,
     banner: str | None = None,
     taglines: dict[str, str] | None = None,
+    generated_at: str | None = None,
 ) -> str:
     taglines = taglines or {}
     total = sum(len(group) for group in shelved.values()) + len(unshelved)
@@ -160,6 +181,11 @@ def render_org_page(
     if unshelved:
         sections.append(_shelf("Unshelved", unshelved, unshelved=True))
     body = "\n\n".join(sections)
+    generated_html = (
+        f'\n    <p class="generated">Generated {html.escape(generated_at)}</p>'
+        if generated_at
+        else ""
+    )
     return f"""\
 <!DOCTYPE html>
 <html lang="en">
@@ -182,7 +208,7 @@ def render_org_page(
 {body}
 
   <footer>
-    {_FOOTER}
+    {_FOOTER}{generated_html}
   </footer>
 </main>
 </body>

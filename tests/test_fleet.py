@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from mythings.github import CIStatus
@@ -23,11 +24,16 @@ def test_purpose_from_claude_md_missing_seam_returns_none() -> None:
     assert purpose_from_claude_md("# my-x\n\nno seams here\n") is None
 
 
+def _ts(days_ago: int) -> str:
+    when = datetime.now(UTC) - timedelta(days=days_ago, minutes=1)
+    return when.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def test_gather_status_remote_mode_reads_via_gh(tmp_path: Path) -> None:
     slug = "MyThingsLab/my-x"
     dev_ledger_entry = json.dumps(
         {"tool": "claude-code", "kind": "ship", "outcome": "success", "detail": "shipped",
-         "data": {}, "ts": "2026-07-01T00:00:00Z"}
+         "data": {}, "ts": _ts(5)}
     )
     fake = FakeGh(
         issues={slug: [issue(1), issue(2)]},
@@ -46,8 +52,9 @@ def test_gather_status_remote_mode_reads_via_gh(tmp_path: Path) -> None:
     assert status.ci == CIStatus.SUCCESS
     assert status.open_issues == 2
     assert status.open_prs == 1
-    assert status.last_dev_ledger == "ship: shipped (2026-07-01T00:00:00Z)"
+    assert status.last_dev_ledger == f"ship: shipped ({_ts(5)})"
     assert status.last_ledger is None  # runtime Ledger is unreachable remotely
+    assert status.last_activity_days == 5
 
 
 def test_gather_status_local_mode_reads_the_checkout(tmp_path: Path) -> None:
@@ -58,7 +65,7 @@ def test_gather_status_local_mode_reads_the_checkout(tmp_path: Path) -> None:
     (repo_dir / "dev-ledger" / "2026-07-02.jsonl").write_text(
         json.dumps(
             {"tool": "claude-code", "kind": "build", "outcome": "success", "detail": "built",
-             "data": {}, "ts": "2026-07-02T00:00:00Z"}
+             "data": {}, "ts": _ts(2)}
         )
         + "\n",
         encoding="utf-8",
@@ -67,7 +74,7 @@ def test_gather_status_local_mode_reads_the_checkout(tmp_path: Path) -> None:
     (repo_dir / ".mythings" / "ledger.jsonl").write_text(
         json.dumps(
             {"tool": "myx", "kind": "run", "outcome": "success", "detail": "ran",
-             "data": {}, "ts": "2026-07-03T00:00:00Z"}
+             "data": {}, "ts": _ts(1)}
         )
         + "\n",
         encoding="utf-8",
@@ -78,5 +85,17 @@ def test_gather_status_local_mode_reads_the_checkout(tmp_path: Path) -> None:
     status = gather_status("my-x", org="MyThingsLab", runner=fake, workspace=workspace)
 
     assert status.purpose == "local purpose"
-    assert status.last_dev_ledger == "build: built (2026-07-02T00:00:00Z)"
-    assert status.last_ledger == "run: ran (2026-07-03T00:00:00Z)"
+    assert status.last_dev_ledger == f"build: built ({_ts(2)})"
+    assert status.last_ledger == f"run: ran ({_ts(1)})"
+    # dev-ledger wins the priority race over the runtime ledger for staleness too.
+    assert status.last_activity_days == 2
+
+
+def test_gather_status_no_activity_data_leaves_days_unset() -> None:
+    slug = "MyThingsLab/my-x"
+    fake = FakeGh(issues={slug: []}, prs={slug: []}, runs={slug: [run_row()]})
+
+    status = gather_status("my-x", org="MyThingsLab", runner=fake)
+
+    assert status.last_dev_ledger is None
+    assert status.last_activity_days is None

@@ -14,6 +14,7 @@ _STATUS = RepoStatus(
     open_prs=1,
     last_dev_ledger="ship: shipped (2026-07-01T00:00:00Z)",
     last_ledger=None,
+    last_activity_days=5,
 )
 
 
@@ -27,6 +28,7 @@ def _status(**overrides) -> RepoStatus:
         open_prs=_STATUS.open_prs,
         last_dev_ledger=_STATUS.last_dev_ledger,
         last_ledger=_STATUS.last_ledger,
+        last_activity_days=_STATUS.last_activity_days,
     )
     fields.update(overrides)
     return RepoStatus(**fields)
@@ -63,10 +65,37 @@ def test_render_org_page_includes_banner_and_taglines_when_given() -> None:
 
 
 def test_render_org_page_omits_banner_and_activity_when_absent() -> None:
-    quiet = _status(last_dev_ledger=None, last_ledger=None)
+    quiet = _status(last_dev_ledger=None, last_ledger=None, last_activity_days=None)
     page = render_org_page({"Development harness": [quiet]}, [])
     assert "State of the fleet:" not in page
     assert '<div class="last">' not in page  # unknown activity is absent, not guessed
+    assert "stale" not in page  # unknown staleness is absent, not guessed
+
+
+def test_render_org_page_flags_stale_repos_with_escalating_tone() -> None:
+    stale = _status(name="my-stale", slug="MyThingsLab/my-stale", last_activity_days=45)
+    very_stale = _status(name="my-fossil", slug="MyThingsLab/my-fossil", last_activity_days=120)
+    page = render_org_page({"Development harness": [stale, very_stale]}, [])
+    assert '<span class="pill warn">stale 45d</span>' in page
+    assert '<span class="pill crit">stale 120d</span>' in page
+
+
+def test_render_org_page_sorts_failing_ci_and_stale_repos_first() -> None:
+    healthy = _status(name="my-healthy", ci=CIStatus.SUCCESS, last_activity_days=1)
+    stale = _status(name="my-stale", ci=CIStatus.SUCCESS, last_activity_days=60)
+    failing = _status(name="my-failing", ci=CIStatus.FAILURE, last_activity_days=1)
+    page = render_org_page({"Development harness": [healthy, stale, failing]}, [])
+    assert page.index("my-failing") < page.index("my-stale") < page.index("my-healthy")
+
+
+def test_render_org_page_includes_generated_timestamp_when_given() -> None:
+    page = render_org_page({"Development harness": [_STATUS]}, [], generated_at="2026-07-10T14:32Z")
+    assert '<p class="generated">Generated 2026-07-10T14:32Z</p>' in page
+
+
+def test_render_org_page_omits_generated_timestamp_when_absent() -> None:
+    page = render_org_page({"Development harness": [_STATUS]}, [])
+    assert '<p class="generated">' not in page
 
 
 def test_render_org_page_escapes_html_in_status_fields() -> None:
