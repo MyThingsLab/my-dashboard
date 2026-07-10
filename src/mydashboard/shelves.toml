@@ -15,6 +15,7 @@ repos = [
   "my-docs",
   "my-dashboard",
   "fleet-dispatch",
+  "my-coder",
 ]
 
 [shelves.services]
@@ -24,6 +25,10 @@ repos = [
   "my-server",
   "my-telegram-bot",
   "mythingslab.github.io",
+  "study",
+  "typst-templates",
+  "typst-personal-docs",
+  ".github",
 ]
 
 [shelves.casual_development]
@@ -40,4 +45,10 @@ repos = [
   "my-archivist",
   "my-librarian",
   "my-idea",
+  "my-raytracer",
+  "my-signal-processor",
+  "my-manim-editor",
+  "my-image-processor",
+  "my-data-analysist",
+  "my-notes",
 ]
