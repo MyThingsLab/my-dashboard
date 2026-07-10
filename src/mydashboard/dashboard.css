@@ -20,7 +20,7 @@ body {
 }
 .mono, code { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace; }
 main { max-width: 72rem; margin: 0 auto; }
-a { color: var(--accent-ink); }
+a { color: var(--accent-ink); transition: color .15s ease; }
 
 header.masthead { margin-bottom: 1.75rem; }
 .eyebrow {
@@ -35,7 +35,11 @@ h1 { font-size: 1.55rem; margin: .2rem 0 .4rem; text-wrap: balance; }
   display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
   gap: .75rem; margin: 1.5rem 0 2.25rem;
 }
-.tile { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: .8rem .95rem; }
+.tile {
+  background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: .8rem .95rem;
+  transition: border-color .15s ease, transform .15s ease;
+}
+.tile:hover { border-color: var(--accent); transform: translateY(-1px); }
 .tile .k { font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .tile .v {
   font-family: ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums;
@@ -57,6 +61,11 @@ section.shelf { margin-bottom: 2.5rem; }
 .tool {
   background: var(--card); border: 1px solid var(--line); border-radius: 6px;
   padding: .85rem .95rem; display: flex; flex-direction: column; gap: .5rem;
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+.tool:hover {
+  border-color: var(--accent); transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .06);
 }
 .tool .name { font-family: ui-monospace, Menlo, monospace; font-size: .95rem; font-weight: 600; }
 .tool .name a { color: inherit; text-decoration: none; }
@@ -66,7 +75,7 @@ section.shelf { margin-bottom: 2.5rem; }
 .pill {
   font-family: ui-monospace, Menlo, monospace; font-size: .72rem; font-variant-numeric: tabular-nums;
   padding: .1rem .5rem; border-radius: 999px; background: var(--pill-bg); color: var(--muted);
-  border: 1px solid transparent;
+  border: 1px solid transparent; transition: background .15s ease, color .15s ease;
 }
 .pill.good { background: var(--good-bg); color: var(--good); }
 .pill.warn { background: var(--warn-bg); color: var(--warn); }
@@ -82,3 +91,4 @@ footer {
   padding-top: .8rem; font-size: .78rem; color: var(--muted);
 }
 footer code { background: var(--pill-bg); padding: .05rem .35rem; border-radius: 4px; }
+.generated { font-family: ui-monospace, Menlo, monospace; margin: .5rem 0 0; }

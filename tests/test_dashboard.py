@@ -62,6 +62,7 @@ def test_render_happy_path_opens_pr(tmp_path: Path) -> None:
     assert "<h2>Development harness</h2>" in page
     assert "my-a" in page and "my-b" in page
     assert "<h2>Unshelved</h2>" in page and "my-mystery" in page
+    assert '<p class="generated">Generated ' in page
 
     recorded = list(Ledger(tmp_path / "led.jsonl"))
     assert recorded[-1].tool == "mydashboard" and recorded[-1].kind == "dashboard_render"
