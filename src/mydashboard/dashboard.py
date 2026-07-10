@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from myguard import Guard
@@ -27,6 +29,14 @@ _BANNER_SYSTEM = (
     "status table. Use only the information already present; never invent a "
     "capability, count, or status not shown in the table."
 )
+
+# The "Generated <ts>" footer line changes on every run even when nothing else
+# does; strip it before diffing so a fresh timestamp alone never triggers a PR.
+_GENERATED_RE = re.compile(r'\n {4}<p class="generated">.*?</p>')
+
+
+def _strip_generated(page: str) -> str:
+    return _GENERATED_RE.sub("", page)
 
 
 class PolicyDenied(RuntimeError):
@@ -86,8 +96,13 @@ class Dashboard:
         unshelved = [statuses[n] for n in sorted(unshelved_names)]
 
         banner = self._banner(shelved) if summarize else None
+        generated_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%MZ")
         page = render_org_page(
-            shelved, unshelved, banner=banner, taglines=self.shelving.taglines()
+            shelved,
+            unshelved,
+            banner=banner,
+            taglines=self.shelving.taglines(),
+            generated_at=generated_at,
         )
         page_hash = hashlib.sha256(page.encode("utf-8")).hexdigest()
 
@@ -134,7 +149,9 @@ class Dashboard:
         with Workspace(self.repo_root, self.base) as tree:
             target = tree / _PAGE_PATH
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(page, encoding="utf-8")
+            existing = target.read_text(encoding="utf-8") if target.exists() else None
+            if existing is None or _strip_generated(existing) != _strip_generated(page):
+                target.write_text(page, encoding="utf-8")
             legacy = tree / _LEGACY_PAGE
             if legacy.exists():
                 legacy.unlink()

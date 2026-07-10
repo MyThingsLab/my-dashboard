@@ -3,12 +3,15 @@ from __future__ import annotations
 import base64
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from mythings.github import CIStatus, Runner, _gh
 from mythings.ledger import Ledger, LedgerEntry
 
 ORG = "MyThingsLab"
+
+_LEDGER_TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
 @dataclass(frozen=True)
@@ -21,6 +24,7 @@ class RepoStatus:
     open_prs: int
     last_dev_ledger: str | None
     last_ledger: str | None
+    last_activity_days: int | None = None
 
 
 def list_org_repos(org: str = ORG, *, runner: Runner = _gh) -> list[str]:
@@ -75,7 +79,12 @@ def _format_entry(entry: LedgerEntry) -> str:
     return f"{entry.kind} ({entry.ts})"
 
 
-def _dev_ledger_tail_remote(slug: str, *, runner: Runner = _gh) -> str | None:
+def _days_since(ts: str) -> int:
+    when = datetime.strptime(ts, _LEDGER_TS_FORMAT).replace(tzinfo=UTC)
+    return (datetime.now(UTC) - when).days
+
+
+def _dev_ledger_tail_remote(slug: str, *, runner: Runner = _gh) -> LedgerEntry | None:
     try:
         raw = runner(["api", f"repos/{slug}/contents/dev-ledger", "--jq", "."])
     except Exception:  # noqa: BLE001 - no dev-ledger dir (or repo unreachable)
@@ -87,10 +96,10 @@ def _dev_ledger_tail_remote(slug: str, *, runner: Runner = _gh) -> str | None:
     lines = [line for line in _decode_b64(content).splitlines() if line.strip()]
     if not lines:
         return None
-    return _format_entry(LedgerEntry.from_json(lines[-1]))
+    return LedgerEntry.from_json(lines[-1])
 
 
-def _dev_ledger_tail_local(repo_dir: Path) -> str | None:
+def _dev_ledger_tail_local(repo_dir: Path) -> LedgerEntry | None:
     dev_ledger = repo_dir / "dev-ledger"
     if not dev_ledger.is_dir():
         return None
@@ -100,17 +109,17 @@ def _dev_ledger_tail_local(repo_dir: Path) -> str | None:
     lines = [line for line in files[-1].read_text(encoding="utf-8").splitlines() if line.strip()]
     if not lines:
         return None
-    return _format_entry(LedgerEntry.from_json(lines[-1]))
+    return LedgerEntry.from_json(lines[-1])
 
 
-def _runtime_ledger_tail_local(repo_dir: Path) -> str | None:
+def _runtime_ledger_tail_local(repo_dir: Path) -> LedgerEntry | None:
     path = repo_dir / ".mythings" / "ledger.jsonl"
     if not path.exists():
         return None
     entries = list(Ledger(path))
     if not entries:
         return None
-    return _format_entry(entries[-1])
+    return entries[-1]
 
 
 def gather_status(
@@ -126,13 +135,14 @@ def gather_status(
         claude_md_path = local / "CLAUDE.md"
         claude_md = claude_md_path.read_text(encoding="utf-8") if claude_md_path.exists() else ""
         purpose = purpose_from_claude_md(claude_md)
-        last_dev_ledger = _dev_ledger_tail_local(local)
-        last_ledger = _runtime_ledger_tail_local(local)
+        dev_entry = _dev_ledger_tail_local(local)
+        runtime_entry = _runtime_ledger_tail_local(local)
     else:
         remote_claude_md = _decode_b64(_file_or_none(slug, "CLAUDE.md", runner=runner))
         purpose = purpose_from_claude_md(remote_claude_md)
-        last_dev_ledger = _dev_ledger_tail_remote(slug, runner=runner)
-        last_ledger = None  # runtime Ledger is workspace-local, gitignored — unreachable remotely
+        dev_entry = _dev_ledger_tail_remote(slug, runner=runner)
+        runtime_entry = None  # runtime Ledger is workspace-local, gitignored — unreachable remotely
+    latest_entry = dev_entry or runtime_entry
     open_issues, open_prs = open_counts(slug, runner=runner)
     return RepoStatus(
         name=name,
@@ -141,6 +151,7 @@ def gather_status(
         ci=ci_status(slug, runner=runner),
         open_issues=open_issues,
         open_prs=open_prs,
-        last_dev_ledger=last_dev_ledger,
-        last_ledger=last_ledger,
+        last_dev_ledger=_format_entry(dev_entry) if dev_entry else None,
+        last_ledger=_format_entry(runtime_entry) if runtime_entry else None,
+        last_activity_days=_days_since(latest_entry.ts) if latest_entry else None,
     )
