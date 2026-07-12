@@ -7,7 +7,7 @@ from pathlib import Path
 
 from mythings.github import CIStatus
 
-from conftest import FakeGh, issue, run_row
+from conftest import fake_gh, issue, run_row
 from mydashboard.fleet import gather_status, purpose_from_claude_md
 
 
@@ -35,7 +35,7 @@ def test_gather_status_remote_mode_reads_via_gh(tmp_path: Path) -> None:
         {"tool": "claude-code", "kind": "ship", "outcome": "success", "detail": "shipped",
          "data": {}, "ts": _ts(5)}
     )
-    fake = FakeGh(
+    fake = fake_gh(
         issues={slug: [issue(1), issue(2)]},
         prs={slug: [issue(3)]},
         runs={slug: [run_row()]},
@@ -80,7 +80,7 @@ def test_gather_status_local_mode_reads_the_checkout(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     slug = "MyThingsLab/my-x"
-    fake = FakeGh(issues={slug: []}, prs={slug: []}, runs={slug: [run_row()]})
+    fake = fake_gh(issues={slug: []}, prs={slug: []}, runs={slug: [run_row()]})
 
     status = gather_status("my-x", org="MyThingsLab", runner=fake, workspace=workspace)
 
@@ -93,7 +93,7 @@ def test_gather_status_local_mode_reads_the_checkout(tmp_path: Path) -> None:
 
 def test_gather_status_no_activity_data_leaves_days_unset() -> None:
     slug = "MyThingsLab/my-x"
-    fake = FakeGh(issues={slug: []}, prs={slug: []}, runs={slug: [run_row()]})
+    fake = fake_gh(issues={slug: []}, prs={slug: []}, runs={slug: [run_row()]})
 
     status = gather_status("my-x", org="MyThingsLab", runner=fake)
 

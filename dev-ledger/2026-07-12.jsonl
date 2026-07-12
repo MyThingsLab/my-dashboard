@@ -1,0 +1,1 @@
+{"data":{"files":"tests/","session":"2026-07-12"},"detail":"Mechanical migration to mythings.testing: the dispatch-table FakeGh became fake_gh wiring over the shared FakeGh (repo/issue/pr/run/api handlers); the empty-tree make_site_repo stays local by design.","kind":"build","outcome":"success","tool":"claude-code","ts":"2026-07-12T10:23:31Z"}
