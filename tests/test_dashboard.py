@@ -7,7 +7,7 @@ from pathlib import Path
 from mythings.engine import NoopEngine
 from mythings.ledger import Ledger
 
-from conftest import FakeGh, make_site_repo, run_row
+from conftest import fake_gh, make_site_repo, run_row
 from mydashboard.dashboard import Dashboard
 
 _SHELVES = """
@@ -28,7 +28,7 @@ def _show(repo: Path, ref: str) -> str:
     return proc.stdout
 
 
-def _fake_fleet(names: list[str]) -> FakeGh:
+def _fake_fleet(names: list[str]) -> fake_gh:
     issues = {f"MyThingsLab/{n}": [] for n in names}
     prs = {f"MyThingsLab/{n}": [] for n in names}
     runs = {f"MyThingsLab/{n}": [run_row()] for n in names}
@@ -37,7 +37,7 @@ def _fake_fleet(names: list[str]) -> FakeGh:
         contents[f"repos/MyThingsLab/{n}/contents/CLAUDE.md"] = _b64(
             f"- **Purpose:** purpose of {n}\n"
         )
-    return FakeGh(repos=names, issues=issues, prs=prs, runs=runs, contents=contents)
+    return fake_gh(repos=names, issues=issues, prs=prs, runs=runs, contents=contents)
 
 
 def test_render_happy_path_opens_pr(tmp_path: Path) -> None:

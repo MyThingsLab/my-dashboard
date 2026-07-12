@@ -6,14 +6,17 @@ from pathlib import Path
 
 import pytest
 
+# Shared fakes come from mythings.testing (plain imports; aliased fixture
+# re-export + getfixturevalue wrapper per core docs/CONVENTIONS.md).
+from mythings.testing import FakeGh
+from mythings.testing import clean_git_env as _shared_clean_git_env  # noqa: F401
+
 
 @pytest.fixture(autouse=True)
-def _clean_git_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    # pre-commit runs hooks with GIT_DIR/GIT_INDEX_FILE set; they leak into the
-    # git subprocesses these tests spawn (and into isolation.Workspace) and break
-    # worktree ops on the throwaway repo. Real my-dashboard runs aren't inside a hook.
-    for var in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_OBJECT_DIRECTORY"):
-        monkeypatch.delenv(var, raising=False)
+def _clean_git_env(request: pytest.FixtureRequest) -> None:
+    # Real git worktrees in every test; hook-launched pytest (pre-commit)
+    # must not leak GIT_* into them.
+    request.getfixturevalue("_shared_clean_git_env")
 
 
 def git(repo: Path, *argv: str) -> None:
@@ -21,6 +24,8 @@ def git(repo: Path, *argv: str) -> None:
 
 
 def make_site_repo(tmp_path: Path) -> Path:
+    # Deliberately an EMPTY tree (--allow-empty), not the shared make_git_repo:
+    # the front page must render into a docs repo with no files yet.
     origin = tmp_path / "origin.git"
     subprocess.run(["git", "init", "--bare", str(origin)], check=True, capture_output=True)
     repo = tmp_path / "work"
@@ -34,50 +39,44 @@ def make_site_repo(tmp_path: Path) -> Path:
     return repo
 
 
-class FakeGh:
-    """Mocks the `gh` boundary used by fleet.py + Dashboard's PR flow."""
+def fake_gh(
+    *,
+    repos: list[str] | None = None,
+    issues: dict[str, list[dict]] | None = None,
+    prs: dict[str, list[dict]] | None = None,
+    runs: dict[str, list[dict]] | None = None,
+    contents: dict[str, str] | None = None,
+    pr_create_url: str = "https://github.com/MyThingsLab/mythingslab.github.io/pull/9",
+) -> FakeGh:
+    issues = issues or {}
+    prs = prs or {}
+    runs = runs or {}
+    contents = contents or {}
 
-    def __init__(
-        self,
-        *,
-        repos: list[str] | None = None,
-        issues: dict[str, list[dict]] | None = None,
-        prs: dict[str, list[dict]] | None = None,
-        runs: dict[str, list[dict]] | None = None,
-        contents: dict[str, str] | None = None,
-        pr_create_url: str = "https://github.com/MyThingsLab/mythingslab.github.io/pull/9",
-    ) -> None:
-        self.repos = repos or []
-        self.issues = issues or {}
-        self.prs = prs or {}
-        self.runs = runs or {}
-        self.contents = contents or {}
-        self.pr_create_url = pr_create_url
-        self.calls: list[list[str]] = []
+    def _slug(argv: list[str]) -> str:
+        return argv[argv.index("--repo") + 1]
 
-    def __call__(self, argv: list[str]) -> str:
-        self.calls.append(argv)
-        if argv[:2] == ["repo", "list"]:
-            return json.dumps([{"name": name} for name in self.repos])
-        if argv[:2] == ["issue", "list"]:
-            slug = argv[argv.index("--repo") + 1]
-            return json.dumps(self.issues.get(slug, []))
-        if argv[:2] == ["pr", "list"]:
-            if "--head" in argv:
-                return json.dumps([])
-            slug = argv[argv.index("--repo") + 1]
-            return json.dumps(self.prs.get(slug, []))
-        if argv[:2] == ["run", "list"]:
-            slug = argv[argv.index("--repo") + 1]
-            return json.dumps(self.runs.get(slug, []))
-        if argv[0] == "api":
-            path = argv[1]
-            if path not in self.contents:
-                raise RuntimeError(f"gh api {path} failed (404)")
-            return self.contents[path]
-        if argv[:2] == ["pr", "create"]:
-            return self.pr_create_url + "\n"
-        raise AssertionError(f"unexpected gh call: {argv}")
+    def pr_list(argv: list[str]) -> str:
+        if "--head" in argv:
+            return json.dumps([])
+        return json.dumps(prs.get(_slug(argv), []))
+
+    def api(argv: list[str]) -> str:
+        path = argv[1]
+        if path not in contents:
+            raise RuntimeError(f"gh api {path} failed (404)")
+        return contents[path]
+
+    return FakeGh(
+        {
+            ("repo", "list"): json.dumps([{"name": name} for name in (repos or [])]),
+            ("issue", "list"): lambda argv: json.dumps(issues.get(_slug(argv), [])),
+            ("pr", "list"): pr_list,
+            ("run", "list"): lambda argv: json.dumps(runs.get(_slug(argv), [])),
+            ("api",): api,
+            ("pr", "create"): pr_create_url + "\n",
+        }
+    )
 
 
 def issue(number: int) -> dict:
