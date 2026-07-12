@@ -122,6 +122,39 @@ def _shelf(
   </section>"""
 
 
+def _explore_card(status: RepoStatus) -> str:
+    web_app = status.web_app or {}
+    hosted = web_app.get("hosted_url")
+    name = html.escape(status.name)
+    name_html = f'<a href="{html.escape(hosted)}">{name}</a>' if hosted else name
+    purpose = html.escape(status.purpose) if status.purpose else "(no purpose seam found)"
+    run, port = web_app.get("run"), web_app.get("port")
+    detail = hosted or (f"{run} — localhost:{port}" if run and port else run)
+    last = f'\n        <div class="last"><code>{html.escape(detail)}</code></div>' if detail else ""
+    return f"""\
+      <div class="tool">
+        <div class="name">{name_html}</div>
+        <p class="purpose">{purpose}</p>{last}
+      </div>"""
+
+
+def _explore(statuses: list[RepoStatus]) -> str:
+    with_app = sorted((s for s in statuses if s.web_app), key=lambda s: s.name)
+    if not with_app:
+        return ""
+    count = f"{len(with_app)} tool" + ("" if len(with_app) == 1 else "s")
+    cards = "\n".join(_explore_card(status) for status in with_app)
+    return f"""\
+  <section class="shelf">
+    <div class="shelf-head">
+      <h2>Explore</h2><span class="count">{count} with a web app</span>
+    </div>
+    <div class="grid">
+{cards}
+    </div>
+  </section>"""
+
+
 def _tile(k: str, v: str, d: str) -> str:
     return (
         f'    <div class="tile"><div class="k">{k}</div>'
@@ -173,6 +206,10 @@ def render_org_page(
         if banner
         else ""
     )
+    all_statuses = [s for group in shelved.values() for s in group] + unshelved
+    explore_html = _explore(all_statuses)
+    explore_block = f"\n\n{explore_html}" if explore_html else ""
+
     sections = [
         _shelf(label, statuses, what=taglines.get(label))
         for label, statuses in shelved.items()
@@ -203,7 +240,7 @@ def render_org_page(
     <h1>{total} tools, one loop</h1>{banner_html}
   </header>
 
-{_tiles(shelved, unshelved)}
+{_tiles(shelved, unshelved)}{explore_block}
 
 {body}
 

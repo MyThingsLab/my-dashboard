@@ -15,7 +15,7 @@ from mythings.isolation import Workspace, in_github_actions
 from mythings.ledger import Ledger
 from mythings.policy import Action, Decision, Policy
 
-from mydashboard.fleet import ORG, RepoStatus, gather_status, list_org_repos
+from mydashboard.fleet import ORG, RepoStatus, gather_status, list_org_repos, load_web_apps
 from mydashboard.render import render_org_page, render_org_table, render_repo_card
 from mydashboard.shelves import Shelving, load_shelves
 
@@ -87,8 +87,15 @@ class Dashboard:
 
     def render(self, *, summarize: bool = False, no_pr: bool = False) -> RenderResult:
         names = list_org_repos(self.org, runner=self.runner)
+        web_apps = load_web_apps()
         statuses = {
-            name: gather_status(name, org=self.org, runner=self.runner, workspace=self.workspace)
+            name: gather_status(
+                name,
+                org=self.org,
+                runner=self.runner,
+                workspace=self.workspace,
+                web_app=web_apps.get(name),
+            )
             for name in names
         }
         mapped, unshelved_names = self.shelving.classify(names)
@@ -122,7 +129,11 @@ class Dashboard:
 
     def status(self, name: str, *, org: str | None = None) -> StatusResult:
         status = gather_status(
-            name, org=org or self.org, runner=self.runner, workspace=self.workspace
+            name,
+            org=org or self.org,
+            runner=self.runner,
+            workspace=self.workspace,
+            web_app=load_web_apps().get(name),
         )
         card = render_repo_card(status)
         self.ledger.record(

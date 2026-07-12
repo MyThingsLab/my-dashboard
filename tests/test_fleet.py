@@ -8,7 +8,7 @@ from pathlib import Path
 from mythings.github import CIStatus
 
 from conftest import fake_gh, issue, run_row
-from mydashboard.fleet import gather_status, purpose_from_claude_md
+from mydashboard.fleet import gather_status, load_web_apps, purpose_from_claude_md
 
 
 def _b64(text: str) -> str:
@@ -99,3 +99,40 @@ def test_gather_status_no_activity_data_leaves_days_unset() -> None:
 
     assert status.last_dev_ledger is None
     assert status.last_activity_days is None
+
+
+def test_gather_status_passes_web_app_through() -> None:
+    slug = "MyThingsLab/my-x"
+    fake = fake_gh(issues={slug: []}, prs={slug: []}, runs={slug: [run_row()]})
+    web_app = {"run": "myx serve", "port": 9000, "hosted_url": None}
+
+    status = gather_status("my-x", org="MyThingsLab", runner=fake, web_app=web_app)
+
+    assert status.web_app == web_app
+
+
+def test_gather_status_web_app_defaults_to_none() -> None:
+    slug = "MyThingsLab/my-x"
+    fake = fake_gh(issues={slug: []}, prs={slug: []}, runs={slug: [run_row()]})
+
+    status = gather_status("my-x", org="MyThingsLab", runner=fake)
+
+    assert status.web_app is None
+
+
+def test_load_web_apps_keeps_only_repos_with_one(tmp_path: Path) -> None:
+    manifest = tmp_path / "tools_manifest.json"
+    manifest.write_text(
+        json.dumps(
+            [
+                {"repo": "my-server", "web_app": {"run": "myserver serve", "port": 8787}},
+                {"repo": "my-todo"},
+                {"repo": "my-guard", "web_app": None},
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    web_apps = load_web_apps(manifest)
+
+    assert web_apps == {"my-server": {"run": "myserver serve", "port": 8787}}

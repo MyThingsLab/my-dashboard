@@ -29,6 +29,7 @@ def _status(**overrides) -> RepoStatus:
         last_dev_ledger=_STATUS.last_dev_ledger,
         last_ledger=_STATUS.last_ledger,
         last_activity_days=_STATUS.last_activity_days,
+        web_app=_STATUS.web_app,
     )
     fields.update(overrides)
     return RepoStatus(**fields)
@@ -103,6 +104,32 @@ def test_render_org_page_escapes_html_in_status_fields() -> None:
     page = render_org_page({"Development harness": [sneaky]}, [])
     assert "<script>" not in page
     assert "&lt;script&gt;" in page
+
+
+def test_render_org_page_omits_explore_section_without_any_web_app() -> None:
+    page = render_org_page({"Development harness": [_STATUS]}, [])
+    assert "<h2>Explore</h2>" not in page
+
+
+def test_render_org_page_explore_shows_local_run_command() -> None:
+    server = _status(
+        name="my-server",
+        web_app={"run": "myserver serve", "port": 8787, "hosted_url": None},
+    )
+    page = render_org_page({"Development harness": [_STATUS, server]}, [])
+    assert "<h2>Explore</h2>" in page
+    assert "1 tool with a web app" in page
+    assert "myserver serve — localhost:8787" in page
+    assert "my-x" not in page.split("<h2>Explore</h2>")[1].split("</section>")[0]
+
+
+def test_render_org_page_explore_links_a_hosted_url() -> None:
+    server = _status(
+        name="my-server",
+        web_app={"run": "myserver serve", "port": 8787, "hosted_url": "https://tools.example/x"},
+    )
+    page = render_org_page({"Development harness": [server]}, [])
+    assert '<a href="https://tools.example/x">my-server</a>' in page
 
 
 def test_render_org_table_is_the_markdown_engine_prompt() -> None:
