@@ -4,6 +4,7 @@ import base64
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from importlib.resources import files
 from pathlib import Path
 
 from mythings.github import CIStatus, Runner, _gh
@@ -25,6 +26,21 @@ class RepoStatus:
     last_dev_ledger: str | None
     last_ledger: str | None
     last_activity_days: int | None = None
+    web_app: dict | None = None
+
+
+def default_manifest_path() -> Path:
+    # tools_manifest.json is the fleet's canonical registry, shipped as
+    # package data inside mythings. Read the data file, never the private
+    # mythings._manifest module — core's __all__ is contracts-only and that
+    # module is build tooling (same convention as myguide.catalog).
+    return Path(str(files("mythings").joinpath("tools_manifest.json")))
+
+
+def load_web_apps(manifest_path: Path | None = None) -> dict[str, dict]:
+    path = manifest_path or default_manifest_path()
+    entries = json.loads(path.read_text(encoding="utf-8"))
+    return {e["repo"]: e["web_app"] for e in entries if e.get("web_app")}
 
 
 def list_org_repos(org: str = ORG, *, runner: Runner = _gh) -> list[str]:
@@ -128,6 +144,7 @@ def gather_status(
     org: str = ORG,
     runner: Runner = _gh,
     workspace: Path | None = None,
+    web_app: dict | None = None,
 ) -> RepoStatus:
     slug = f"{org}/{name}"
     local = workspace / name if workspace is not None else None
@@ -154,4 +171,5 @@ def gather_status(
         last_dev_ledger=_format_entry(dev_entry) if dev_entry else None,
         last_ledger=_format_entry(runtime_entry) if runtime_entry else None,
         last_activity_days=_days_since(latest_entry.ts) if latest_entry else None,
+        web_app=web_app,
     )
