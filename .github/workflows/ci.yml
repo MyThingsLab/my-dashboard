@@ -26,11 +26,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      # my-things-core and my-guard are sibling repos, not on PyPI — pull from the same owner.
+      # my-things-core and my-guard are sibling v1 repos, not on PyPI — pinned per
+      # the release contract (RELEASE.md), not floating on @main.
       - name: Install siblings
         run: |
-          pip install "my-things-core @ git+https://github.com/${{ github.repository_owner }}/my-things-core@main"
-          pip install "my-guard @ git+https://github.com/${{ github.repository_owner }}/my-guard@main"
+          pip install "my-things-core @ git+https://github.com/${{ github.repository_owner }}/my-things-core@v1.0.0"
+          pip install "my-guard @ git+https://github.com/${{ github.repository_owner }}/my-guard@v1.0.0"
       - name: Install
         run: pip install -e ".[dev]"
       - name: Ruff

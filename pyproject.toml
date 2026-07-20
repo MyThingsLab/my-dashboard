@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "my-dashboard"
-version = "0.0.1"
+version = "1.0.0"
 description = "Renders the fleet's org-wide dashboard and single-repo status cards."
 authors = [{ name = "Lorenzo Liuzzo", email = "lorenzoliuzzo@outlook.com" }]
 readme = "README.md"
