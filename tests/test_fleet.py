@@ -57,6 +57,17 @@ def test_gather_status_remote_mode_reads_via_gh(tmp_path: Path) -> None:
     assert status.last_activity_days == 5
 
 
+def test_gather_status_reads_agents_md(tmp_path: Path) -> None:
+    workspace = tmp_path
+    repo_dir = workspace / "my-y"
+    (repo_dir / "dev-ledger").mkdir(parents=True)
+    (repo_dir / "AGENTS.md").write_text("- **Purpose:** canonical purpose\n", encoding="utf-8")
+    slug = "MyThingsLab/my-y"
+    fake = fake_gh(issues={slug: []}, prs={slug: []}, runs={slug: [run_row()]})
+    status = gather_status("my-y", org="MyThingsLab", runner=fake, workspace=workspace)
+    assert status.purpose == "canonical purpose"
+
+
 def test_gather_status_local_mode_reads_the_checkout(tmp_path: Path) -> None:
     workspace = tmp_path
     repo_dir = workspace / "my-x"
