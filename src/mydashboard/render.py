@@ -7,7 +7,7 @@ from urllib.parse import quote
 
 from mythings.github import CIStatus
 
-from mydashboard.fleet import PRIORITIES, Milestone, RepoStatus
+from mydashboard.fleet import ORG, PRIORITIES, Milestone, RepoStatus
 
 _CI_BADGE = {
     CIStatus.SUCCESS: "✅",
@@ -285,7 +285,7 @@ def _goal_card(title: str, parts: list[Milestone]) -> str:
     )
     spread = f"{len(parts)} repo" + ("" if len(parts) == 1 else "s")
     return f"""\
-      <div class="goal">
+      <div class="goal-card">
         <div class="name">{html.escape(title)}</div>
         <div class="bar"><span style="width:{pct}%"></span></div>
         <div class="meta">{closed}/{total} closed<span class="unit"> ({pct}%)</span> · \
@@ -381,7 +381,7 @@ def render_org_page(
     banner: str | None = None,
     taglines: dict[str, str] | None = None,
     generated_at: str | None = None,
-    org: str = "MyThingsLab",
+    org: str = ORG,
 ) -> str:
     taglines = taglines or {}
     total = sum(len(group) for group in shelved.values()) + len(unshelved)

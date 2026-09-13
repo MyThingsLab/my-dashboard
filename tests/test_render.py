@@ -212,6 +212,22 @@ def test_render_org_page_breaks_the_backlog_down_by_priority() -> None:
     assert '<div class="k">Unprioritised</div><div class="v">3</div>' in page
 
 
+def test_render_org_page_priority_tile_summarizes_past_four_repos() -> None:
+    holders = [
+        _status(name=f"my-{i}", by_priority={"P1": 6 - i}) for i in range(6)  # 6 repos hold a P1
+    ]
+    page = render_org_page({"Development harness": holders}, [])
+    assert "my-0 6 · my-1 5 · my-2 4 · my-3 3 · +2 more" in page
+
+
+def test_render_org_page_goal_pill_is_not_styled_as_a_goal_card() -> None:
+    # A bare .goal selector would match both; the card must not share it.
+    page = render_org_page({"Development harness": [_status(milestones=(_goal(),))]}, [])
+    assert '<span class="pill goal">goal/cad-foundation</span>' in page
+    assert '<div class="goal-card">' in page
+    assert '<div class="goal">' not in page
+
+
 def test_render_org_page_priority_tiles_link_to_an_org_wide_search() -> None:
     page = render_org_page({"Development harness": [_status(by_priority={"P0": 1})]}, [])
     assert "org%3AMyThingsLab%20is%3Aissue%20is%3Aopen%20label%3A%22prio%3AP0%22" in page

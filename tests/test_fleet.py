@@ -12,6 +12,7 @@ from mydashboard.fleet import (
     gather_status,
     load_web_apps,
     open_milestones,
+    open_work,
     purpose_from_claude_md,
     split_by_priority,
 )
@@ -135,6 +136,25 @@ def test_gather_status_web_app_defaults_to_none() -> None:
     status = gather_status("my-x", org="MyThingsLab", runner=fake)
 
     assert status.web_app is None
+
+
+def test_open_work_asks_for_labels_on_the_call_that_counts_issues() -> None:
+    slug = "MyThingsLab/my-x"
+    seen: list[list[str]] = []
+
+    def recording(argv: list[str]) -> str:
+        seen.append(argv)
+        return json.dumps([issue(1, "prio:P0")] if argv[0] == "issue" else [issue(2)])
+
+    issues, open_prs = open_work(slug, runner=recording)
+
+    assert [row["number"] for row in issues] == [1]
+    assert open_prs == 1
+    # One call, not a second pass for labels.
+    assert [argv for argv in seen if argv[0] == "issue"] == [
+        ["issue", "list", "--repo", slug, "--state", "open", "--limit", "1000", "--json",
+         "number,labels"]
+    ]
 
 
 def test_split_by_priority_uses_the_cad_label_schema() -> None:

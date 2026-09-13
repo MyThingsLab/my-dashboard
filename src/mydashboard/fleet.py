@@ -104,10 +104,12 @@ def purpose_from_claude_md(text: str) -> str | None:
     return None
 
 
-def open_counts(slug: str, *, runner: Runner = _gh) -> tuple[list[dict], int]:
+def open_work(slug: str, *, runner: Runner = _gh) -> tuple[list[dict], int]:
     # Issues come back with their labels so the prio: split costs no extra
-    # call; PRs are still only counted.
-    common = ["--repo", slug, "--state", "open", "--limit", "100", "--json"]
+    # call; PRs are still only counted. The limit is well clear of the
+    # biggest backlog in the org — a repo that hit it would under-report its
+    # priority split with no sign on the page that it had.
+    common = ["--repo", slug, "--state", "open", "--limit", "1000", "--json"]
     issues = json.loads(runner(["issue", "list", *common, "number,labels"]))
     prs = json.loads(runner(["pr", "list", *common, "number"]))
     return issues, len(prs)
@@ -239,7 +241,7 @@ def gather_status(
         dev_entry = _dev_ledger_tail_remote(slug, runner=runner)
         runtime_entry = None  # runtime Ledger is workspace-local, gitignored — unreachable remotely
     latest_entry = dev_entry or runtime_entry
-    issues, open_prs = open_counts(slug, runner=runner)
+    issues, open_prs = open_work(slug, runner=runner)
     by_priority, unprioritised = split_by_priority(issues)
     return RepoStatus(
         name=name,

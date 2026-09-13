@@ -97,15 +97,17 @@ a.tile:hover .k { color: var(--accent-ink); }
 
 /* goals */
 .grid.goals { grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr)); }
-.goal {
+/* goal-card, not .goal: a bare .goal would also match the goal pill that
+   repo cards carry, and style a pill like a card. */
+.goal-card {
   background: var(--card); border: 1px solid var(--line); border-radius: 6px;
   padding: .85rem .95rem; display: flex; flex-direction: column; gap: .5rem;
 }
-.goal .name { font-family: ui-monospace, Menlo, monospace; font-size: .95rem; font-weight: 600; }
-.goal .bar { background: var(--pill-bg); border-radius: 999px; height: .4rem; overflow: hidden; }
-.goal .bar span { display: block; height: 100%; background: var(--accent); }
-.goal .meta { font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-.goal .meta .unit { color: var(--muted); }
+.goal-card .name { font-family: ui-monospace, Menlo, monospace; font-size: .95rem; font-weight: 600; }
+.goal-card .bar { background: var(--pill-bg); border-radius: 999px; height: .4rem; overflow: hidden; }
+.goal-card .bar span { display: block; height: 100%; background: var(--accent); }
+.goal-card .meta { font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.goal-card .meta .unit { color: var(--muted); }
 .due.warn { color: var(--warn); }
 .due.crit { color: var(--crit); }
 a.pill { text-decoration: none; }
