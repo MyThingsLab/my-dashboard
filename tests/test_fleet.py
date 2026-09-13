@@ -7,8 +7,14 @@ from pathlib import Path
 
 from mythings.github import CIStatus
 
-from conftest import fake_gh, issue, run_row
-from mydashboard.fleet import gather_status, load_web_apps, purpose_from_claude_md
+from conftest import fake_gh, issue, milestone, run_row
+from mydashboard.fleet import (
+    gather_status,
+    load_web_apps,
+    open_milestones,
+    purpose_from_claude_md,
+    split_by_priority,
+)
 
 
 def _b64(text: str) -> str:
@@ -129,6 +135,82 @@ def test_gather_status_web_app_defaults_to_none() -> None:
     status = gather_status("my-x", org="MyThingsLab", runner=fake)
 
     assert status.web_app is None
+
+
+def test_split_by_priority_uses_the_cad_label_schema() -> None:
+    issues = [
+        issue(1, "prio:P0", "lane:kernel"),
+        issue(2, "prio:P1"),
+        issue(3, "prio:P1", "my-x"),  # a backlog label alongside the facet
+        issue(4, "my-x"),
+        issue(5),
+    ]
+    counts, unprioritised = split_by_priority(issues)
+    assert counts == {"P0": 1, "P1": 2}
+    assert unprioritised == 2
+
+
+def test_split_by_priority_treats_an_unknown_prio_value_as_unprioritised() -> None:
+    # parse() passes an unrecognized value through as unknown rather than
+    # inventing a fifth priority — it must not count as prioritised either.
+    counts, unprioritised = split_by_priority([issue(1, "prio:P9")])
+    assert counts == {}
+    assert unprioritised == 1
+
+
+def test_open_milestones_reads_counts_and_due_date() -> None:
+    slug = "MyThingsLab/my-x"
+    fake = fake_gh(
+        milestones={
+            slug: [
+                milestone(
+                    "goal/cad-foundation",
+                    open_issues=5,
+                    closed_issues=3,
+                    due_on="2026-09-18T00:00:00Z",
+                ),
+                milestone("v2", open_issues=1),
+            ]
+        }
+    )
+
+    goal, plain = open_milestones(slug, runner=fake)
+
+    assert (goal.title, goal.repo, goal.is_goal, goal.total) == (
+        "goal/cad-foundation",
+        "my-x",
+        True,
+        8,
+    )
+    assert goal.due_on == "2026-09-18T00:00:00Z"
+    assert (plain.title, plain.is_goal, plain.due_on) == ("v2", False, None)
+
+
+def test_open_milestones_degrades_to_empty_when_unreachable() -> None:
+    def boom(argv: list[str]) -> str:
+        raise RuntimeError("gh api failed (404)")
+
+    # Never guessed, never a hard failure: an unreachable repo has no goals.
+    assert open_milestones("MyThingsLab/my-x", runner=boom) == ()
+
+
+def test_gather_status_carries_priority_and_milestones() -> None:
+    slug = "MyThingsLab/my-x"
+    fake = fake_gh(
+        issues={slug: [issue(1, "prio:P0"), issue(2, "prio:P0"), issue(3)]},
+        prs={slug: []},
+        runs={slug: [run_row()]},
+        milestones={slug: [milestone("goal/cad-foundation", open_issues=2, closed_issues=1)]},
+    )
+
+    status = gather_status("my-x", org="MyThingsLab", runner=fake)
+
+    assert status.open_issues == 3
+    assert status.by_priority == {"P0": 2}
+    assert status.priority("P0") == 2
+    assert status.priority("P1") == 0
+    assert status.unprioritised == 1
+    assert [m.title for m in status.milestones] == ["goal/cad-foundation"]
 
 
 def test_load_web_apps_keeps_only_repos_with_one(tmp_path: Path) -> None:

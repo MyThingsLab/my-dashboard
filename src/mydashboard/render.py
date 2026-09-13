@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import html
+from datetime import UTC, date, datetime
 from importlib import resources
+from urllib.parse import quote
 
 from mythings.github import CIStatus
 
-from mydashboard.fleet import RepoStatus
+from mydashboard.fleet import PRIORITIES, Milestone, RepoStatus
 
 _CI_BADGE = {
     CIStatus.SUCCESS: "✅",
@@ -31,6 +33,17 @@ _CI_SORT_RANK = {
 _STALE_DAYS = 30
 _VERY_STALE_DAYS = 90
 
+# P0/P1 are the two that should change what anyone does today, so they get a
+# tone; P2/P3 are inventory and render plain.
+_PRIO_TONE = {"P0": "crit", "P1": "warn"}
+
+# A goal is late once it is inside this window, so "due in 3 days with 11 open"
+# reads as a warning on the page rather than a date you have to subtract.
+_DUE_SOON_DAYS = 7
+
+# How many repos a priority tile or goal card names before it summarizes.
+_MAX_NAMED_REPOS = 4
+
 _STYLE = resources.files("mydashboard").joinpath("dashboard.css").read_text(encoding="utf-8")
 
 _FOOTER = (
@@ -43,15 +56,17 @@ _FOOTER = (
 def _row(status: RepoStatus) -> str:
     purpose = status.purpose or "_(no purpose seam found)_"
     activity = status.last_dev_ledger or status.last_ledger or "—"
+    goals = ", ".join(sorted({m.title for m in status.milestones if m.is_goal})) or "—"
     return (
         f"| [{status.name}](https://github.com/{status.slug}) | {purpose} | "
-        f"{_CI_BADGE[status.ci]} | {status.open_issues} | {status.open_prs} | {activity} |"
+        f"{_CI_BADGE[status.ci]} | {status.open_issues} | {status.priority('P0')} | "
+        f"{status.priority('P1')} | {goals} | {status.open_prs} | {activity} |"
     )
 
 
 def _table(statuses: list[RepoStatus]) -> str:
-    header = "| Tool | Purpose | CI | Issues | PRs | Last activity |\n"
-    header += "| --- | --- | --- | --- | --- | --- |\n"
+    header = "| Tool | Purpose | CI | Issues | P0 | P1 | Goals | PRs | Last activity |\n"
+    header += "| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
     return header + "\n".join(_row(status) for status in statuses)
 
 
@@ -74,6 +89,13 @@ def _card(status: RepoStatus, *, unshelved: bool = False) -> str:
         _pill(f"{status.open_prs} PR", "warn" if status.open_prs else ""),
         _pill(f"{status.open_issues} issue" + ("" if status.open_issues == 1 else "s")),
     ]
+    pills += [
+        _pill(f"{status.priority(prio)}×{prio}", prio_tone)
+        for prio, prio_tone in _PRIO_TONE.items()
+        if status.priority(prio)
+    ]
+    goals = sorted({m.title for m in status.milestones if m.is_goal})
+    pills += [_pill(title, "goal") for title in goals]
     if status.last_activity_days is not None and status.last_activity_days >= _STALE_DAYS:
         stale_tone = "crit" if status.last_activity_days >= _VERY_STALE_DAYS else "warn"
         pills.append(_pill(f"stale {status.last_activity_days}d", stale_tone))
@@ -91,10 +113,18 @@ def _card(status: RepoStatus, *, unshelved: bool = False) -> str:
       </div>"""
 
 
-def _sort_key(status: RepoStatus) -> tuple[int, int, str]:
+def _sort_key(status: RepoStatus) -> tuple[int, int, int, int, str]:
     days = status.last_activity_days
     staleness_rank = -days if days is not None else 1
-    return (_CI_SORT_RANK[status.ci], staleness_rank, status.name)
+    # A red main still outranks everything — it blocks the repo entirely —
+    # but below that a shelf leads with whoever holds the P0s.
+    return (
+        _CI_SORT_RANK[status.ci],
+        -status.priority("P0"),
+        -status.priority("P1"),
+        staleness_rank,
+        status.name,
+    )
 
 
 def _shelf(
@@ -155,11 +185,154 @@ def _explore(statuses: list[RepoStatus]) -> str:
   </section>"""
 
 
-def _tile(k: str, v: str, d: str) -> str:
+def _tile(k: str, v: str, d: str, *, href: str | None = None, tone: str = "") -> str:
+    tag, attrs = ("div", "")
+    if href is not None:
+        tag, attrs = "a", f' href="{html.escape(href)}"'
+    cls = f"tile {tone}".strip()
     return (
-        f'    <div class="tile"><div class="k">{k}</div>'
-        f'<div class="v">{v}</div><div class="d">{d}</div></div>'
+        f'    <{tag} class="{cls}"{attrs}><div class="k">{k}</div>'
+        f'<div class="v">{v}</div><div class="d">{d}</div></{tag}>'
     )
+
+
+# ---- backlog by priority ------------------------------------------------
+
+
+def _issue_search_url(org: str, query: str) -> str:
+    q = quote(f"org:{org} is:issue is:open {query}", safe="")
+    return f"https://github.com/search?q={q}&type=issues"
+
+
+def _named_repos(pairs: list[tuple[str, int]]) -> str:
+    ranked = sorted(pairs, key=lambda pair: (-pair[1], pair[0]))
+    named = [f"{name} {count}" for name, count in ranked[:_MAX_NAMED_REPOS]]
+    extra = len(ranked) - len(named)
+    if extra > 0:
+        named.append(f"+{extra} more")
+    return " · ".join(named) if named else "none open"
+
+
+def _priority_tile(prio: str, statuses: list[RepoStatus], org: str) -> str:
+    holders = [(s.name, s.priority(prio)) for s in statuses if s.priority(prio)]
+    total = sum(count for _, count in holders)
+    return _tile(
+        prio,
+        str(total),
+        html.escape(_named_repos(holders)),
+        href=_issue_search_url(org, f'label:"prio:{prio}"'),
+        tone=_PRIO_TONE.get(prio, "") if total else "",
+    )
+
+
+def _priorities(statuses: list[RepoStatus], org: str) -> str:
+    total = sum(s.open_issues for s in statuses)
+    labelled = total - sum(s.unprioritised for s in statuses)
+    if not total:
+        return ""
+    tiles = [_priority_tile(prio, statuses, org) for prio in PRIORITIES]
+    unprioritised = sum(s.unprioritised for s in statuses)
+    tiles.append(
+        _tile(
+            "Unprioritised",
+            str(unprioritised),
+            "no <code>prio:</code> label yet",
+            href=_issue_search_url(org, " ".join(f'-label:"prio:{p}"' for p in PRIORITIES)),
+        )
+    )
+    count = f"{labelled}/{total} open issues carry a priority"
+    return f"""\
+  <section class="shelf backlog">
+    <div class="shelf-head">
+      <h2>Backlog by priority</h2><span class="count">{count}</span>
+      <span class="what">the <code>prio:</code> facet of the CAD label schema</span>
+    </div>
+    <div class="tiles">
+{chr(10).join(tiles)}
+    </div>
+  </section>"""
+
+
+# ---- goals ---------------------------------------------------------------
+
+
+def _due_date(due_on: str) -> date:
+    return datetime.strptime(due_on[:10], "%Y-%m-%d").replace(tzinfo=UTC).date()
+
+
+def _due_html(due_on: str | None) -> str:
+    if not due_on:
+        return ""
+    due = _due_date(due_on)
+    days = (due - datetime.now(UTC).date()).days
+    if days < 0:
+        return f' · <span class="due crit">overdue {-days}d ({due})</span>'
+    tone = " warn" if days <= _DUE_SOON_DAYS else ""
+    return f' · <span class="due{tone}">due in {days}d ({due})</span>'
+
+
+def _goal_card(title: str, parts: list[Milestone]) -> str:
+    open_issues = sum(m.open_issues for m in parts)
+    total = sum(m.total for m in parts)
+    closed = total - open_issues
+    pct = round(100 * closed / total) if total else 0
+    due_on = min((m.due_on for m in parts if m.due_on), default=None)
+    chips = "".join(
+        f'<a class="pill" href="{html.escape(m.url)}">'
+        f"{html.escape(m.repo)} {m.open_issues}</a>"
+        for m in sorted(parts, key=lambda m: (-m.open_issues, m.repo))
+        if m.open_issues
+    )
+    spread = f"{len(parts)} repo" + ("" if len(parts) == 1 else "s")
+    return f"""\
+      <div class="goal">
+        <div class="name">{html.escape(title)}</div>
+        <div class="bar"><span style="width:{pct}%"></span></div>
+        <div class="meta">{closed}/{total} closed<span class="unit"> ({pct}%)</span> · \
+{open_issues} open across {spread}{_due_html(due_on)}</div>
+        <div class="pills">{chips}</div>
+      </div>"""
+
+
+def _goals(statuses: list[RepoStatus]) -> str:
+    # One goal spans repos as a same-titled milestone in each, so group by
+    # title rather than rendering the same objective once per repo.
+    by_title: dict[str, list[Milestone]] = {}
+    plain: list[Milestone] = []
+    for status in statuses:
+        for milestone in status.milestones:
+            if milestone.is_goal:
+                by_title.setdefault(milestone.title, []).append(milestone)
+            else:
+                plain.append(milestone)
+    if not by_title and not plain:
+        return ""
+
+    ordered = sorted(
+        by_title.items(),
+        key=lambda item: (min((m.due_on for m in item[1] if m.due_on), default="9999"), item[0]),
+    )
+    cards = "\n".join(_goal_card(title, parts) for title, parts in ordered)
+    grid = f'\n    <div class="grid goals">\n{cards}\n    </div>' if cards else ""
+    others = ""
+    if plain:
+        items = "".join(
+            f'<li><a href="{html.escape(m.url)}">{html.escape(m.repo)} · '
+            f"{html.escape(m.title)}</a> — {m.open_issues} open</li>"
+            for m in sorted(plain, key=lambda m: (m.repo, m.title))
+        )
+        others = (
+            '\n    <p class="callout plain">Other open milestones — repo-local, '
+            f"not a cross-repo goal.</p>\n    <ul class=\"milestones\">{items}</ul>"
+        )
+    count = f"{len(ordered)} open goal" + ("" if len(ordered) == 1 else "s")
+    return f"""\
+  <section class="shelf goals">
+    <div class="shelf-head">
+      <h2>Goals</h2><span class="count">{count}</span>
+      <span class="what">a <code>goal/</code> milestone opened in every repo it touches</span>
+    </div>{grid}{others}
+  </section>"""
 
 
 def _tiles(shelved: dict[str, list[RepoStatus]], unshelved: list[RepoStatus]) -> str:
@@ -176,6 +349,11 @@ def _tiles(shelved: dict[str, list[RepoStatus]], unshelved: list[RepoStatus]) ->
         if n:
             ci_parts.append(f"{n} {word}")
     ci_detail = " · ".join(ci_parts) if ci_parts else "all green"
+    issues = sum(s.open_issues for s in statuses)
+    p0 = sum(s.priority("P0") for s in statuses)
+    p1 = sum(s.priority("P1") for s in statuses)
+    goals = {m.title for s in statuses for m in s.milestones if m.is_goal}
+    goal_open = sum(m.open_issues for s in statuses for m in s.milestones if m.is_goal)
     tiles = "\n".join(
         [
             _tile("Repos", str(len(statuses)), f"across {shelf_count} shelves"),
@@ -185,7 +363,12 @@ def _tiles(shelved: dict[str, list[RepoStatus]], unshelved: list[RepoStatus]) ->
                 ci_detail,
             ),
             _tile("Open PRs", str(sum(s.open_prs for s in statuses)), "across the fleet"),
-            _tile("Open issues", str(sum(s.open_issues for s in statuses)), "across the backlog"),
+            _tile("Open issues", str(issues), f"{p0} P0 · {p1} P1"),
+            _tile(
+                "Open goals",
+                str(len(goals)),
+                f"{goal_open} issue" + ("" if goal_open == 1 else "s") + " still open",
+            ),
         ]
     )
     return f'  <div class="tiles">\n{tiles}\n  </div>'
@@ -198,6 +381,7 @@ def render_org_page(
     banner: str | None = None,
     taglines: dict[str, str] | None = None,
     generated_at: str | None = None,
+    org: str = "MyThingsLab",
 ) -> str:
     taglines = taglines or {}
     total = sum(len(group) for group in shelved.values()) + len(unshelved)
@@ -209,6 +393,13 @@ def render_org_page(
     all_statuses = [s for group in shelved.values() for s in group] + unshelved
     explore_html = _explore(all_statuses)
     explore_block = f"\n\n{explore_html}" if explore_html else ""
+    # Priority and goals come before the shelves: what to do next, then what
+    # the fleet is made of.
+    lead = "".join(
+        f"\n\n{section}"
+        for section in (_priorities(all_statuses, org), _goals(all_statuses))
+        if section
+    )
 
     sections = [
         _shelf(label, statuses, what=taglines.get(label))
@@ -240,7 +431,7 @@ def render_org_page(
     <h1>{total} tools, one loop</h1>{banner_html}
   </header>
 
-{_tiles(shelved, unshelved)}{explore_block}
+{_tiles(shelved, unshelved)}{lead}{explore_block}
 
 {body}
 
@@ -262,6 +453,15 @@ def render_repo_card(status: RepoStatus) -> str:
         f"Open issues: {status.open_issues}",
         f"Open PRs: {status.open_prs}",
     ]
+    split = " · ".join(f"{prio} {status.priority(prio)}" for prio in PRIORITIES)
+    lines.append(f"By priority: {split} · unprioritised {status.unprioritised}")
+    for milestone in sorted(status.milestones, key=lambda m: m.title):
+        kind = "Goal" if milestone.is_goal else "Milestone"
+        due = f", due {milestone.due_on[:10]}" if milestone.due_on else ""
+        lines.append(
+            f"{kind}: {milestone.title} — {milestone.open_issues} open, "
+            f"{milestone.closed_issues} closed{due}"
+        )
     if status.last_dev_ledger:
         lines.append(f"Last dev-ledger: {status.last_dev_ledger}")
     if status.last_ledger:

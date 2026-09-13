@@ -2,17 +2,43 @@ from __future__ import annotations
 
 import base64
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
 
 from mythings.github import CIStatus, Runner, _gh
+from mythings.labels import parse as parse_labels
 from mythings.ledger import Ledger, LedgerEntry
 
 ORG = "MyThingsLab"
 
+# The prio facet of the CAD label schema, in rank order (core ADR 0005).
+PRIORITIES = ("P0", "P1", "P2", "P3")
+
+# A goal is a milestone whose title carries this prefix: one cross-repo
+# objective, opened as a same-titled milestone in every repo it touches.
+GOAL_PREFIX = "goal/"
+
 _LEDGER_TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+@dataclass(frozen=True)
+class Milestone:
+    title: str
+    repo: str
+    url: str
+    open_issues: int
+    closed_issues: int
+    due_on: str | None = None
+
+    @property
+    def is_goal(self) -> bool:
+        return self.title.startswith(GOAL_PREFIX)
+
+    @property
+    def total(self) -> int:
+        return self.open_issues + self.closed_issues
 
 
 @dataclass(frozen=True)
@@ -27,6 +53,14 @@ class RepoStatus:
     last_ledger: str | None
     last_activity_days: int | None = None
     web_app: dict | None = None
+    # Open issues split by prio: label. Keys are a subset of PRIORITIES;
+    # issues carrying no recognized prio land in unprioritised instead.
+    by_priority: dict[str, int] = field(default_factory=dict)
+    unprioritised: int = 0
+    milestones: tuple[Milestone, ...] = ()
+
+    def priority(self, prio: str) -> int:
+        return self.by_priority.get(prio, 0)
 
 
 def default_manifest_path() -> Path:
@@ -70,11 +104,47 @@ def purpose_from_claude_md(text: str) -> str | None:
     return None
 
 
-def open_counts(slug: str, *, runner: Runner = _gh) -> tuple[int, int]:
-    common = ["--repo", slug, "--state", "open", "--limit", "100", "--json", "number"]
-    issues = json.loads(runner(["issue", "list", *common]))
-    prs = json.loads(runner(["pr", "list", *common]))
-    return len(issues), len(prs)
+def open_counts(slug: str, *, runner: Runner = _gh) -> tuple[list[dict], int]:
+    # Issues come back with their labels so the prio: split costs no extra
+    # call; PRs are still only counted.
+    common = ["--repo", slug, "--state", "open", "--limit", "100", "--json"]
+    issues = json.loads(runner(["issue", "list", *common, "number,labels"]))
+    prs = json.loads(runner(["pr", "list", *common, "number"]))
+    return issues, len(prs)
+
+
+def split_by_priority(issues: list[dict]) -> tuple[dict[str, int], int]:
+    # mythings.labels.parse is the one place the CAD vocabulary is spelled
+    # out (core ADR 0005) — never re-split "prio:P0" by hand here.
+    counts: dict[str, int] = {}
+    unprioritised = 0
+    for row in issues:
+        names = [label["name"] for label in row.get("labels") or []]
+        prio = parse_labels(names).prio
+        if prio is None:
+            unprioritised += 1
+        else:
+            counts[prio] = counts.get(prio, 0) + 1
+    return counts, unprioritised
+
+
+def open_milestones(slug: str, *, runner: Runner = _gh) -> tuple[Milestone, ...]:
+    name = slug.split("/", 1)[-1]
+    try:
+        raw = runner(["api", f"repos/{slug}/milestones?state=open"])
+    except Exception:  # noqa: BLE001 - no milestones (or repo unreachable): render as absent
+        return ()
+    return tuple(
+        Milestone(
+            title=row["title"],
+            repo=name,
+            url=row["html_url"],
+            open_issues=row["open_issues"],
+            closed_issues=row["closed_issues"],
+            due_on=row.get("due_on"),
+        )
+        for row in json.loads(raw)
+    )
 
 
 def ci_status(slug: str, *, runner: Runner = _gh, branch: str = "main") -> CIStatus:
@@ -169,14 +239,18 @@ def gather_status(
         dev_entry = _dev_ledger_tail_remote(slug, runner=runner)
         runtime_entry = None  # runtime Ledger is workspace-local, gitignored — unreachable remotely
     latest_entry = dev_entry or runtime_entry
-    open_issues, open_prs = open_counts(slug, runner=runner)
+    issues, open_prs = open_counts(slug, runner=runner)
+    by_priority, unprioritised = split_by_priority(issues)
     return RepoStatus(
         name=name,
         slug=slug,
         purpose=purpose,
         ci=ci_status(slug, runner=runner),
-        open_issues=open_issues,
+        open_issues=len(issues),
         open_prs=open_prs,
+        by_priority=by_priority,
+        unprioritised=unprioritised,
+        milestones=open_milestones(slug, runner=runner),
         last_dev_ledger=_format_entry(dev_entry) if dev_entry else None,
         last_ledger=_format_entry(runtime_entry) if runtime_entry else None,
         last_activity_days=_days_since(latest_entry.ts) if latest_entry else None,
