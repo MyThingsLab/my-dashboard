@@ -225,13 +225,27 @@ def _priority_tile(prio: str, statuses: list[RepoStatus], org: str) -> str:
     )
 
 
-def _priorities(statuses: list[RepoStatus], org: str) -> str:
-    total = sum(s.open_issues for s in statuses)
-    labelled = total - sum(s.unprioritised for s in statuses)
+def _priorities(
+    statuses: list[RepoStatus], org: str, governed: frozenset[str] | None = None
+) -> str:
+    # Coverage is only meaningful over the repos the schema governs. Counting
+    # coursework and casual builds against it buries the one number that says
+    # whether the fleet's own backlog is triaged.
+    tracked = [s for s in statuses if governed is None or s.name in governed]
+    untracked = [s for s in statuses if governed is not None and s.name not in governed]
+    total = sum(s.open_issues for s in tracked)
     if not total:
         return ""
-    tiles = [_priority_tile(prio, statuses, org) for prio in PRIORITIES]
-    unprioritised = sum(s.unprioritised for s in statuses)
+    unprioritised = sum(s.unprioritised for s in tracked)
+    labelled = total - unprioritised
+
+    # P0/P1 always render, so their absence is visible rather than ambiguous;
+    # the quieter tiers only take space when they hold something.
+    tiles = [
+        _priority_tile(prio, tracked, org)
+        for prio in PRIORITIES
+        if prio in ("P0", "P1") or any(s.priority(prio) for s in tracked)
+    ]
     tiles.append(
         _tile(
             "Unprioritised",
@@ -240,13 +254,20 @@ def _priorities(statuses: list[RepoStatus], org: str) -> str:
             href=_issue_search_url(org, " ".join(f'-label:"prio:{p}"' for p in PRIORITIES)),
         )
     )
-    count = f"{labelled}/{total} open issues carry a priority"
+    note = ""
+    if untracked_issues := sum(s.open_issues for s in untracked):
+        repos = sum(1 for s in untracked if s.open_issues)
+        note = (
+            f'\n    <p class="callout plain">{untracked_issues} more open issues across '
+            f"{repos} ungoverned repo" + ("" if repos == 1 else "s") + " are not counted here.</p>"
+        )
+    count = f"{labelled}/{total} governed open issues carry a priority"
     return f"""\
   <section class="shelf backlog">
     <div class="shelf-head">
       <h2>Backlog by priority</h2><span class="count">{count}</span>
       <span class="what">the <code>prio:</code> facet of the CAD label schema</span>
-    </div>
+    </div>{note}
     <div class="tiles">
 {chr(10).join(tiles)}
     </div>
@@ -345,9 +366,17 @@ def _tiles(shelved: dict[str, list[RepoStatus]], unshelved: list[RepoStatus]) ->
         (CIStatus.PENDING, "pending"),
         (CIStatus.NONE, "no CI"),
     ):
-        n = sum(1 for s in statuses if s.ci is state)
-        if n:
-            ci_parts.append(f"{n} {word}")
+        names = sorted(s.name for s in statuses if s.ci is state)
+        if not names:
+            continue
+        # Name the red repos rather than only counting them — a bare "2
+        # failing" makes the reader go hunting for which two.
+        if state is CIStatus.FAILURE:
+            shown = names[:_MAX_NAMED_REPOS]
+            extra = f" +{len(names) - len(shown)}" if len(names) > len(shown) else ""
+            ci_parts.append(f"{', '.join(shown)}{extra} failing")
+        else:
+            ci_parts.append(f"{len(names)} {word}")
     ci_detail = " · ".join(ci_parts) if ci_parts else "all green"
     issues = sum(s.open_issues for s in statuses)
     p0 = sum(s.priority("P0") for s in statuses)
@@ -382,6 +411,7 @@ def render_org_page(
     taglines: dict[str, str] | None = None,
     generated_at: str | None = None,
     org: str = ORG,
+    governed: frozenset[str] | None = None,
 ) -> str:
     taglines = taglines or {}
     total = sum(len(group) for group in shelved.values()) + len(unshelved)
@@ -393,11 +423,11 @@ def render_org_page(
     all_statuses = [s for group in shelved.values() for s in group] + unshelved
     explore_html = _explore(all_statuses)
     explore_block = f"\n\n{explore_html}" if explore_html else ""
-    # Priority and goals come before the shelves: what to do next, then what
-    # the fleet is made of.
+    # Goals first, then priority, then the shelves: what the fleet is trying
+    # to finish, what to pick up next, then what it is made of.
     lead = "".join(
         f"\n\n{section}"
-        for section in (_priorities(all_statuses, org), _goals(all_statuses))
+        for section in (_goals(all_statuses), _priorities(all_statuses, org, governed))
         if section
     )
 

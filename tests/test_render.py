@@ -77,7 +77,7 @@ def test_render_org_page_tiles_summarize_the_fleet() -> None:
     page = render_org_page({"Development harness": [_STATUS, failing]}, [])
     assert "2 tools, one loop" in page
     assert '<div class="v">1<span class="unit">/2</span></div>' in page  # CI green count
-    assert "1 failing" in page
+    assert "my-y failing" in page  # named, not just counted
 
 
 def test_render_org_page_includes_banner_and_taglines_when_given() -> None:
@@ -204,7 +204,7 @@ def test_render_org_page_breaks_the_backlog_down_by_priority() -> None:
     page = render_org_page({"Development harness": [a, b]}, [])
 
     assert "<h2>Backlog by priority</h2>" in page
-    assert "4/7 open issues carry a priority" in page
+    assert "4/7 governed open issues carry a priority" in page
     # P0 totals across repos and names who holds them, worst first.
     assert (
         '<div class="k">P0</div><div class="v">3</div><div class="d">my-a 2 · my-b 1</div>' in page
@@ -226,6 +226,54 @@ def test_render_org_page_goal_pill_is_not_styled_as_a_goal_card() -> None:
     assert '<span class="pill goal">goal/cad-foundation</span>' in page
     assert '<div class="goal-card">' in page
     assert '<div class="goal">' not in page
+
+
+def test_render_org_page_counts_coverage_over_governed_repos_only() -> None:
+    kernel = _status(name="my-fleet", open_issues=4, by_priority={"P0": 3}, unprioritised=1)
+    casual = _status(name="my-idea", open_issues=60, unprioritised=60)
+    page = render_org_page(
+        {"Development harness": [kernel], "Casual development": [casual]},
+        [],
+        governed=frozenset({"my-fleet"}),
+    )
+    assert "3/4 governed open issues carry a priority" in page
+    # The 60 are not silently dropped — they are named as uncounted.
+    assert "60 more open issues across 1 ungoverned repo are not counted here." in page
+    assert '<div class="k">P0</div><div class="v">3</div><div class="d">my-fleet 3</div>' in page
+
+
+def test_render_org_page_counts_every_repo_when_no_scope_is_given() -> None:
+    a = _status(name="my-a", open_issues=4, by_priority={"P0": 3}, unprioritised=1)
+    b = _status(name="my-b", open_issues=6, unprioritised=6)
+    page = render_org_page({"Development harness": [a, b]}, [])
+    assert "3/10 governed open issues carry a priority" in page
+    assert "not counted here" not in page
+
+
+def test_render_org_page_omits_the_backlog_when_no_governed_repo_has_issues() -> None:
+    casual = _status(name="my-idea", open_issues=60, unprioritised=60)
+    page = render_org_page({"Casual development": [casual]}, [], governed=frozenset())
+    assert "<h2>Backlog by priority</h2>" not in page
+
+
+def test_render_org_page_hides_empty_p2_p3_but_always_shows_p0_p1() -> None:
+    page = render_org_page({"Development harness": [_status(by_priority={"P2": 1})]}, [])
+    assert '<div class="k">P0</div><div class="v">0</div>' in page
+    assert '<div class="k">P1</div><div class="v">0</div>' in page
+    assert '<div class="k">P2</div><div class="v">1</div>' in page
+    assert '<div class="k">P3</div>' not in page  # empty tier takes no space
+
+
+def test_render_org_page_puts_goals_above_the_backlog() -> None:
+    status = _status(by_priority={"P0": 1}, milestones=(_goal(),))
+    page = render_org_page({"Development harness": [status]}, [])
+    assert page.index("<h2>Goals</h2>") < page.index("<h2>Backlog by priority</h2>")
+
+
+def test_render_org_page_ci_tile_summarizes_past_four_failing_repos() -> None:
+    red = [_status(name=f"my-{i}", ci=CIStatus.FAILURE) for i in range(6)]
+    page = render_org_page({"Development harness": red}, [])
+    assert "my-0, my-1, my-2, my-3 +2 failing" in page
 
 
 def test_render_org_page_priority_tiles_link_to_an_org_wide_search() -> None:

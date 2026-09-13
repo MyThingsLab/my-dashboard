@@ -1,54 +1,85 @@
+# Which shelf each org repo renders on, and whether its backlog is governed
+# by the CAD label schema (see mythings.labels / core ADR 0005). A repo listed
+# nowhere renders under "Unshelved" — drift made visible, never dropped.
+
 [shelves.development_harness]
 label = "Development harness"
-what = "runs the autonomous cycle"
+what = "designs and runs the autonomous cycle"
+governed = true
 repos = [
   "my-things-core",
   "my-template",
-  "my-planner",
-  "my-orchestrator",
-  "my-tester",
-  "my-changelogger",
-  "my-projector",
-  "my-reporter",
-  "my-guard",
-  "my-todo",
-  "my-docs",
-  "my-dashboard",
-  "fleet-dispatch",
+  "my-fleet",
   "my-coder",
+  "my-orchestrator",
+  "my-architect",
+  "my-director",
+  "my-guard",
+  "my-tester",
+  "my-reporter",
+  "my-dashboard",
+  "my-docs",
+  "my-todo",
+  "my-changelogger",
+  "my-planner",
+  "my-projector",
+  "my-scaffolder",
+  "my-pipeline",
+  # Retiring: its scripts moved to my-fleet, its issues migrate there next.
+  "fleet-dispatch",
 ]
 
 [shelves.services]
 label = "Services"
 what = "stays up, gets consumed"
+governed = true
 repos = [
   "my-server",
   "my-telegram-bot",
+  "my-guide",
   "mythingslab.github.io",
-  "study",
   "typst-templates",
   "typst-personal-docs",
   ".github",
+]
+
+[shelves.study]
+label = "Study"
+what = "coursework, not fleet engineering"
+repos = [
+  "study",
+  "my-uni",
+  "my-professor",
+  "my-syllabus",
+  "my-flashcards",
+  "my-grader",
+  "my-glossary",
+  "my-bibliography",
+  "my-equations",
+  "my-figure",
+  "my-tables",
 ]
 
 [shelves.casual_development]
 label = "Casual development"
 what = "make or learn something"
 repos = [
+  "my-idea",
   "my-typster",
   "my-presentation",
   "my-researcher",
-  "my-uni",
   "my-site",
   "my-searcher",
   "my-scraper",
   "my-archivist",
   "my-librarian",
-  "my-idea",
   "my-raytracer",
   "my-signal-processor",
   "my-manim-editor",
   "my-image-processor",
   "my-data-analysist",
   "my-notes",
+  "my-cartographer",
+  "my-designer",
+  "my-embedder",
 ]
