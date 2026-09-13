@@ -30,7 +30,7 @@ jobs:
       # the release contract (RELEASE.md), not floating on @main.
       - name: Install siblings
         run: |
-          pip install "my-things-core @ git+https://github.com/${{ github.repository_owner }}/my-things-core@v1.0.0"
+          pip install "my-things-core @ git+https://github.com/${{ github.repository_owner }}/my-things-core@v1.5.0"
           pip install "my-guard @ git+https://github.com/${{ github.repository_owner }}/my-guard@v1.0.0"
       - name: Install
         run: pip install -e ".[dev]"

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from mythings.github import CIStatus
 
-from mydashboard.fleet import RepoStatus
+from mydashboard.fleet import Milestone, RepoStatus
 from mydashboard.render import render_org_page, render_org_table, render_repo_card
 
 _STATUS = RepoStatus(
@@ -30,9 +32,34 @@ def _status(**overrides) -> RepoStatus:
         last_ledger=_STATUS.last_ledger,
         last_activity_days=_STATUS.last_activity_days,
         web_app=_STATUS.web_app,
+        by_priority=_STATUS.by_priority,
+        unprioritised=_STATUS.unprioritised,
+        milestones=_STATUS.milestones,
     )
     fields.update(overrides)
     return RepoStatus(**fields)
+
+
+def _goal(
+    title: str = "goal/cad-foundation",
+    *,
+    repo: str = "my-x",
+    open_issues: int = 3,
+    closed_issues: int = 1,
+    due_on: str | None = None,
+) -> Milestone:
+    return Milestone(
+        title=title,
+        repo=repo,
+        url=f"https://github.com/MyThingsLab/{repo}/milestone/1",
+        open_issues=open_issues,
+        closed_issues=closed_issues,
+        due_on=due_on,
+    )
+
+
+def _in_days(days: int) -> str:
+    return (datetime.now(UTC) + timedelta(days=days)).strftime("%Y-%m-%dT00:00:00Z")
 
 
 def test_render_org_page_groups_by_shelf_and_cards_unshelved() -> None:
@@ -50,7 +77,7 @@ def test_render_org_page_tiles_summarize_the_fleet() -> None:
     page = render_org_page({"Development harness": [_STATUS, failing]}, [])
     assert "2 tools, one loop" in page
     assert '<div class="v">1<span class="unit">/2</span></div>' in page  # CI green count
-    assert "1 failing" in page
+    assert "my-y failing" in page  # named, not just counted
 
 
 def test_render_org_page_includes_banner_and_taglines_when_given() -> None:
@@ -135,8 +162,15 @@ def test_render_org_page_explore_links_a_hosted_url() -> None:
 def test_render_org_table_is_the_markdown_engine_prompt() -> None:
     table = render_org_table({"Development harness": [_STATUS], "Services": []})
     assert "## Development harness" in table
-    assert "| Tool | Purpose | CI | Issues | PRs | Last activity |" in table
+    assert "| Tool | Purpose | CI | Issues | P0 | P1 | Goals | PRs | Last activity |" in table
     assert "## Services" not in table
+
+
+def test_render_org_table_carries_priority_and_goals_to_the_engine() -> None:
+    urgent = _status(by_priority={"P0": 2, "P2": 1}, milestones=(_goal(),))
+    table = render_org_table({"Development harness": [urgent]})
+    # The banner can only mention what the deterministic table shows.
+    assert "| ✅ | 2 | 2 | 0 | goal/cad-foundation | 1 |" in table
 
 
 def test_render_repo_card_reports_the_status_fields() -> None:
@@ -145,3 +179,217 @@ def test_render_repo_card_reports_the_status_fields() -> None:
     assert "Open issues: 2" in card
     assert "Open PRs: 1" in card
     assert "ship: shipped" in card
+
+
+def test_render_repo_card_splits_priority_and_lists_milestones() -> None:
+    card = render_repo_card(
+        _status(
+            open_issues=5,
+            by_priority={"P0": 1, "P1": 2},
+            unprioritised=2,
+            milestones=(_goal(due_on="2026-09-18T00:00:00Z"), _goal("v2", open_issues=1)),
+        )
+    )
+    assert "By priority: P0 1 · P1 2 · P2 0 · P3 0 · unprioritised 2" in card
+    assert "Goal: goal/cad-foundation — 3 open, 1 closed, due 2026-09-18" in card
+    assert "Milestone: v2 — 1 open, 1 closed" in card
+
+
+# ---- backlog by priority ------------------------------------------------
+
+
+def test_render_org_page_breaks_the_backlog_down_by_priority() -> None:
+    a = _status(name="my-a", open_issues=4, by_priority={"P0": 2, "P1": 1}, unprioritised=1)
+    b = _status(name="my-b", open_issues=3, by_priority={"P0": 1}, unprioritised=2)
+    page = render_org_page({"Development harness": [a, b]}, [])
+
+    assert "<h2>Backlog by priority</h2>" in page
+    assert "4/7 governed open issues carry a priority" in page
+    # P0 totals across repos and names who holds them, worst first.
+    assert (
+        '<div class="k">P0</div><div class="v">3</div><div class="d">my-a 2 · my-b 1</div>' in page
+    )
+    assert '<div class="k">Unprioritised</div><div class="v">3</div>' in page
+
+
+def test_render_org_page_priority_tile_summarizes_past_four_repos() -> None:
+    holders = [
+        _status(name=f"my-{i}", by_priority={"P1": 6 - i}) for i in range(6)  # 6 repos hold a P1
+    ]
+    page = render_org_page({"Development harness": holders}, [])
+    assert "my-0 6 · my-1 5 · my-2 4 · my-3 3 · +2 more" in page
+
+
+def test_render_org_page_goal_pill_is_not_styled_as_a_goal_card() -> None:
+    # A bare .goal selector would match both; the card must not share it.
+    page = render_org_page({"Development harness": [_status(milestones=(_goal(),))]}, [])
+    assert '<span class="pill goal">goal/cad-foundation</span>' in page
+    assert '<div class="goal-card">' in page
+    assert '<div class="goal">' not in page
+
+
+def test_render_org_page_counts_coverage_over_governed_repos_only() -> None:
+    kernel = _status(name="my-fleet", open_issues=4, by_priority={"P0": 3}, unprioritised=1)
+    casual = _status(name="my-idea", open_issues=60, unprioritised=60)
+    page = render_org_page(
+        {"Development harness": [kernel], "Casual development": [casual]},
+        [],
+        governed=frozenset({"my-fleet"}),
+    )
+    assert "3/4 governed open issues carry a priority" in page
+    # The 60 are not silently dropped — they are named as uncounted.
+    assert "60 more open issues across 1 ungoverned repo are not counted here." in page
+    assert '<div class="k">P0</div><div class="v">3</div><div class="d">my-fleet 3</div>' in page
+
+
+def test_render_org_page_counts_every_repo_when_no_scope_is_given() -> None:
+    a = _status(name="my-a", open_issues=4, by_priority={"P0": 3}, unprioritised=1)
+    b = _status(name="my-b", open_issues=6, unprioritised=6)
+    page = render_org_page({"Development harness": [a, b]}, [])
+    assert "3/10 governed open issues carry a priority" in page
+    assert "not counted here" not in page
+
+
+def test_render_org_page_omits_the_backlog_when_no_governed_repo_has_issues() -> None:
+    casual = _status(name="my-idea", open_issues=60, unprioritised=60)
+    page = render_org_page({"Casual development": [casual]}, [], governed=frozenset())
+    assert "<h2>Backlog by priority</h2>" not in page
+
+
+def test_render_org_page_hides_empty_p2_p3_but_always_shows_p0_p1() -> None:
+    page = render_org_page({"Development harness": [_status(by_priority={"P2": 1})]}, [])
+    assert '<div class="k">P0</div><div class="v">0</div>' in page
+    assert '<div class="k">P1</div><div class="v">0</div>' in page
+    assert '<div class="k">P2</div><div class="v">1</div>' in page
+    assert '<div class="k">P3</div>' not in page  # empty tier takes no space
+
+
+def test_render_org_page_puts_goals_above_the_backlog() -> None:
+    status = _status(by_priority={"P0": 1}, milestones=(_goal(),))
+    page = render_org_page({"Development harness": [status]}, [])
+    assert page.index("<h2>Goals</h2>") < page.index("<h2>Backlog by priority</h2>")
+
+
+def test_render_org_page_ci_tile_summarizes_past_four_failing_repos() -> None:
+    red = [_status(name=f"my-{i}", ci=CIStatus.FAILURE) for i in range(6)]
+    page = render_org_page({"Development harness": red}, [])
+    assert "my-0, my-1, my-2, my-3 +2 failing" in page
+
+
+def test_render_org_page_priority_tiles_link_to_an_org_wide_search() -> None:
+    page = render_org_page({"Development harness": [_status(by_priority={"P0": 1})]}, [])
+    assert "org%3AMyThingsLab%20is%3Aissue%20is%3Aopen%20label%3A%22prio%3AP0%22" in page
+
+
+def test_render_org_page_priority_tiles_honour_the_org() -> None:
+    page = render_org_page({"Development harness": [_STATUS]}, [], org="OtherOrg")
+    assert "org%3AOtherOrg" in page
+    assert "org%3AMyThingsLab" not in page
+
+
+def test_render_org_page_omits_the_backlog_section_with_no_open_issues() -> None:
+    page = render_org_page({"Development harness": [_status(open_issues=0)]}, [])
+    assert "<h2>Backlog by priority</h2>" not in page
+
+
+def test_render_org_page_priority_tile_is_untoned_at_zero() -> None:
+    page = render_org_page({"Development harness": [_status(unprioritised=2)]}, [])
+    assert '<a class="tile crit"' not in page  # no P0s open — nothing to alarm about
+
+
+def test_render_org_page_cards_pill_open_p0_and_p1() -> None:
+    page = render_org_page(
+        {"Development harness": [_status(by_priority={"P0": 2, "P1": 1, "P3": 5})]}, []
+    )
+    assert '<span class="pill crit">2×P0</span>' in page
+    assert '<span class="pill warn">1×P1</span>' in page
+    assert "P3" not in page.split('<div class="pills">')[1]  # inventory, not a pill
+
+
+def test_render_org_page_sorts_p0_holders_ahead_within_a_shelf() -> None:
+    quiet = _status(name="my-quiet", last_activity_days=1)
+    urgent = _status(name="my-urgent", last_activity_days=1, by_priority={"P0": 1})
+    failing = _status(name="my-failing", ci=CIStatus.FAILURE, last_activity_days=1)
+    page = render_org_page({"Development harness": [quiet, urgent, failing]}, [])
+    shelf = page.split("<h2>Development harness</h2>")[1]
+    # A red main still outranks a P0 — it blocks the repo entirely.
+    assert shelf.index("my-failing") < shelf.index("my-urgent") < shelf.index("my-quiet")
+
+
+# ---- goals ---------------------------------------------------------------
+
+
+def test_render_org_page_groups_one_goal_across_repos() -> None:
+    a = _status(name="my-a", milestones=(_goal(repo="my-a", open_issues=3, closed_issues=1),))
+    b = _status(name="my-b", milestones=(_goal(repo="my-b", open_issues=1, closed_issues=5),))
+    page = render_org_page({"Development harness": [a, b]}, [])
+
+    assert "<h2>Goals</h2>" in page
+    assert "1 open goal" in page  # one goal, not one card per repo
+    assert page.count('<div class="name">goal/cad-foundation</div>') == 1
+    assert "6/10 closed<span class=\"unit\"> (60%)</span> · 4 open across 2 repos" in page
+    assert '<div class="bar"><span style="width:60%"></span></div>' in page
+    # Each repo keeps its own chip, linking to that repo's milestone.
+    chip = '<a class="pill" href="https://github.com/MyThingsLab/{0}/milestone/1">{0} {1}</a>'
+    assert chip.format("my-a", 3) in page
+    assert chip.format("my-b", 1) in page
+
+
+def test_render_org_page_flags_an_overdue_goal() -> None:
+    late = _status(milestones=(_goal(due_on=_in_days(-3)),))
+    page = render_org_page({"Development harness": [late]}, [])
+    assert '<span class="due crit">overdue 3d' in page
+
+
+def test_render_org_page_warns_on_a_goal_due_soon() -> None:
+    soon = _status(milestones=(_goal(due_on=_in_days(2)),))
+    page = render_org_page({"Development harness": [soon]}, [])
+    assert '<span class="due warn">due in 2d' in page
+
+
+def test_render_org_page_leaves_a_distant_goal_untoned() -> None:
+    later = _status(milestones=(_goal(due_on=_in_days(60)),))
+    page = render_org_page({"Development harness": [later]}, [])
+    assert '<span class="due">due in 60d' in page
+
+
+def test_render_org_page_orders_goals_by_soonest_due_date() -> None:
+    status = _status(
+        milestones=(
+            _goal("goal/later", due_on=_in_days(30)),
+            _goal("goal/sooner", due_on=_in_days(2)),
+            _goal("goal/undated"),
+        )
+    )
+    page = render_org_page({"Development harness": [status]}, [])
+    assert page.index("goal/sooner") < page.index("goal/later") < page.index("goal/undated")
+
+
+def test_render_org_page_lists_non_goal_milestones_separately() -> None:
+    status = _status(milestones=(_goal(), _goal("v2.0", open_issues=4)))
+    page = render_org_page({"Development harness": [status]}, [])
+    goals = page.split("<h2>Goals</h2>")[1].split("</section>")[0]
+    assert "1 open goal" in goals  # v2.0 is not counted as a goal
+    assert "Other open milestones" in goals
+    assert "my-x · v2.0</a> — 4 open" in goals
+
+
+def test_render_org_page_omits_the_goals_section_without_any_milestone() -> None:
+    page = render_org_page({"Development harness": [_STATUS]}, [])
+    assert "<h2>Goals</h2>" not in page
+
+
+def test_render_org_page_tiles_count_goals_and_top_priorities() -> None:
+    a = _status(name="my-a", by_priority={"P0": 2, "P1": 1}, milestones=(_goal(repo="my-a"),))
+    b = _status(name="my-b", by_priority={"P1": 3}, milestones=(_goal(repo="my-b", open_issues=2),))
+    page = render_org_page({"Development harness": [a, b]}, [])
+    tile = '<div class="k">{}</div><div class="v">{}</div><div class="d">{}</div>'
+    assert tile.format("Open issues", 4, "2 P0 · 4 P1") in page
+    assert tile.format("Open goals", 1, "5 issues still open") in page
+
+
+def test_render_org_page_escapes_html_in_a_goal_title() -> None:
+    sneaky = _status(milestones=(_goal("goal/<script>alert(1)</script>"),))
+    page = render_org_page({"Development harness": [sneaky]}, [])
+    assert "<script>" not in page
+    assert "&lt;script&gt;" in page

@@ -46,12 +46,14 @@ def fake_gh(
     prs: dict[str, list[dict]] | None = None,
     runs: dict[str, list[dict]] | None = None,
     contents: dict[str, str] | None = None,
+    milestones: dict[str, list[dict]] | None = None,
     pr_create_url: str = "https://github.com/MyThingsLab/mythingslab.github.io/pull/9",
 ) -> FakeGh:
     issues = issues or {}
     prs = prs or {}
     runs = runs or {}
     contents = contents or {}
+    milestones = milestones or {}
 
     def _slug(argv: list[str]) -> str:
         return argv[argv.index("--repo") + 1]
@@ -63,6 +65,9 @@ def fake_gh(
 
     def api(argv: list[str]) -> str:
         path = argv[1]
+        if path.startswith("repos/") and path.endswith("/milestones?state=open"):
+            slug = path.removeprefix("repos/").removesuffix("/milestones?state=open")
+            return json.dumps(milestones.get(slug, []))
         if path not in contents:
             raise RuntimeError(f"gh api {path} failed (404)")
         return contents[path]
@@ -79,8 +84,26 @@ def fake_gh(
     )
 
 
-def issue(number: int) -> dict:
-    return {"number": number}
+def issue(number: int, *labels: str) -> dict:
+    return {"number": number, "labels": [{"name": name} for name in labels]}
+
+
+def milestone(
+    title: str,
+    *,
+    repo: str = "MyThingsLab/my-x",
+    open_issues: int = 0,
+    closed_issues: int = 0,
+    due_on: str | None = None,
+) -> dict:
+    number = abs(hash(title)) % 100
+    return {
+        "title": title,
+        "html_url": f"https://github.com/{repo}/milestone/{number}",
+        "open_issues": open_issues,
+        "closed_issues": closed_issues,
+        "due_on": due_on,
+    }
 
 
 def run_row(status: str = "completed", conclusion: str = "success") -> dict:

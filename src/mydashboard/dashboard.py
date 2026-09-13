@@ -110,6 +110,8 @@ class Dashboard:
             banner=banner,
             taglines=self.shelving.taglines(),
             generated_at=generated_at,
+            org=self.org,
+            governed=self.shelving.governed_repos(),
         )
         page_hash = hashlib.sha256(page.encode("utf-8")).hexdigest()
 

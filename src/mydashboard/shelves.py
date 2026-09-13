@@ -12,6 +12,12 @@ class Shelf:
     label: str
     repos: tuple[str, ...]
     what: str | None = None
+    # Whether this shelf's backlog is governed by the CAD label schema. An
+    # ungoverned shelf (coursework, casual builds) is still rendered, but its
+    # issues are not counted against priority coverage — otherwise the one
+    # number that says "is the backlog triaged" is drowned by repos nobody
+    # ever intended to triage.
+    governed: bool = False
 
 
 @dataclass(frozen=True)
@@ -20,6 +26,9 @@ class Shelving:
 
     def taglines(self) -> dict[str, str]:
         return {shelf.label: shelf.what for shelf in self.shelves if shelf.what}
+
+    def governed_repos(self) -> frozenset[str]:
+        return frozenset(name for shelf in self.shelves if shelf.governed for name in shelf.repos)
 
     def classify(self, repos: list[str]) -> tuple[dict[str, list[str]], list[str]]:
         """Split ``repos`` into {shelf label: repo names} plus the unshelved leftover."""
@@ -49,6 +58,7 @@ def load_shelves(path: str | Path | None = None) -> Shelving:
             label=body["label"],
             repos=tuple(body.get("repos", [])),
             what=body.get("what"),
+            governed=body.get("governed", False),
         )
         for key, body in obj.get("shelves", {}).items()
     )
