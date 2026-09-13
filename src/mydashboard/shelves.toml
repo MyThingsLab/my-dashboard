@@ -25,9 +25,10 @@ repos = [
   "my-projector",
   "my-scaffolder",
   "my-pipeline",
-  # Retiring: its scripts moved to my-fleet, its issues migrate there next.
-  "fleet-dispatch",
 ]
+# fleet-dispatch is retired (scripts moved to my-fleet in #58) and has 0 open
+# issues to migrate — dropped rather than kept as a phantom harness slot. It
+# renders under Unshelved: visible drift, not silently gone.
 
 [shelves.services]
 label = "Services"
