@@ -149,13 +149,22 @@ def gather_status(
     slug = f"{org}/{name}"
     local = workspace / name if workspace is not None else None
     if local is not None and local.is_dir():
-        claude_md_path = local / "CLAUDE.md"
-        claude_md = claude_md_path.read_text(encoding="utf-8") if claude_md_path.exists() else ""
+        claude_md = ""
+        for fname in ("AGENTS.md", "GEMINI.md", "CLAUDE.md"):
+            path = local / fname
+            if path.exists():
+                claude_md = path.read_text(encoding="utf-8")
+                break
         purpose = purpose_from_claude_md(claude_md)
         dev_entry = _dev_ledger_tail_local(local)
         runtime_entry = _runtime_ledger_tail_local(local)
     else:
-        remote_claude_md = _decode_b64(_file_or_none(slug, "CLAUDE.md", runner=runner))
+        remote_claude_md = ""
+        for fname in ("AGENTS.md", "GEMINI.md", "CLAUDE.md"):
+            content = _file_or_none(slug, fname, runner=runner)
+            if content:
+                remote_claude_md = _decode_b64(content)
+                break
         purpose = purpose_from_claude_md(remote_claude_md)
         dev_entry = _dev_ledger_tail_remote(slug, runner=runner)
         runtime_entry = None  # runtime Ledger is workspace-local, gitignored — unreachable remotely
