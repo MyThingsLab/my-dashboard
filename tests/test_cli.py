@@ -4,17 +4,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from mythings.engine import ClaudeCLIEngine, NoopEngine
 
-from mydashboard.cli import _derive_slug, build_engine, main
-
-
-def test_build_engine_noop_by_default() -> None:
-    assert isinstance(build_engine("noop"), NoopEngine)
-
-
-def test_build_engine_claude_cli() -> None:
-    assert isinstance(build_engine("claude-cli"), ClaudeCLIEngine)
+from mydashboard.cli import _derive_slug, main
 
 
 def test_derive_slug_reads_the_origin_remote(tmp_path: Path) -> None:

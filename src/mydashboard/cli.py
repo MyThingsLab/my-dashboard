@@ -5,19 +5,13 @@ import re
 import subprocess
 from pathlib import Path
 
-from mythings.engine import ClaudeCLIEngine, Engine, NoopEngine
+from mythings.engine import build_engine_from_args
 from mythings.ledger import Ledger
 
 from mydashboard.dashboard import DEFAULT_SITE, Dashboard, RenderResult, StatusResult
 
 _ENGINES = ("noop", "claude-cli")
 _REMOTE_RE = re.compile(r"github\.com[:/](?P<slug>[^/]+/[^/]+?)(?:\.git)?$")
-
-
-def build_engine(name: str, *, model: str | None = None) -> Engine:
-    if name == "claude-cli":
-        return ClaudeCLIEngine(model=model)
-    return NoopEngine()
 
 
 def _render_result(result: RenderResult) -> str:
@@ -38,7 +32,7 @@ def _derive_slug(path: Path) -> str:
 
 
 def _make_dashboard(args: argparse.Namespace) -> Dashboard:
-    engine = build_engine(args.engine, model=args.engine_model) if args.summarize else None
+    engine = build_engine_from_args(args) if args.summarize else None
     return Dashboard(
         repo_root=args.repo_root,
         repo=args.repo,
