@@ -1,0 +1,2 @@
+{"data":{"session":"2026-09-15"},"detail":"add P0 Priority Focus and Open PRs Overview sections to dashboard render","kind":"feat","outcome":"success","tool":"claude-code","ts":"2026-09-15T17:38:00Z"}
+{"data":{"files":"src/mydashboard/render.py,src/mydashboard/dashboard.css,HARNESS.md","session":"2026-09-15"},"detail":"Add P0 focus and open PRs overview sections to dashboard render","kind":"build","outcome":"success","tool":"claude-code","ts":"2026-09-15T17:38:56Z"}
