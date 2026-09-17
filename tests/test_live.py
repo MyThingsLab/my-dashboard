@@ -25,8 +25,8 @@ def test_load_workflow_steps_prefers_an_explicit_override(tmp_path: Path) -> Non
     assert _load_workflow_steps(None, override) == [{"id": "b"}]
 
 
-def test_build_model_wires_gather_status_and_the_dependency_graph() -> None:
-    runner = fake_gh(
+def _runner():
+    return fake_gh(
         repos=["my-fleet"],
         issues={
             "MyThingsLab/my-fleet": [
@@ -40,11 +40,31 @@ def test_build_model_wires_gather_status_and_the_dependency_graph() -> None:
             ]
         },
     )
-    shelving = Shelving(shelves=())
-    model = build_model(org="MyThingsLab", runner=runner, shelving=shelving)
-    assert isinstance(model, DashboardModel)
-    assert model.unshelved[0].name == "my-fleet"
-    assert {n.id for n in model.graph.nodes} == {"my-fleet#1", "my-fleet#2"}
+
+
+def test_build_model_publishes_the_graph_before_the_repo_sweep() -> None:
+    # The two stages exist so the graph is usable while the (much slower)
+    # per-repo status sweep is still running. Asserting the order is what
+    # stops a refactor from collapsing them back into one slow yield.
+    stages = list(build_model(org="MyThingsLab", runner=_runner(), shelving=Shelving(shelves=())))
+    assert len(stages) == 2
+
+    first, second = stages
+    assert {n.id for n in first.graph.nodes} == {"my-fleet#1", "my-fleet#2"}
+    assert first.repos == []
+    assert first.complete is False
+
+    assert isinstance(second, DashboardModel)
+    assert [r.name for r in second.repos] == ["my-fleet"]
+    assert second.complete is True
+    assert second.graph.nodes == first.graph.nodes
+
+
+def test_an_unshelved_repo_reports_a_shelf_rather_than_vanishing() -> None:
+    final = list(build_model(org="MyThingsLab", runner=_runner(), shelving=Shelving(shelves=())))[
+        -1
+    ]
+    assert final.shelf_of("my-fleet") == "Unshelved"
 
 
 def _wait_for(predicate, *, timeout: float = 2.0, interval: float = 0.005) -> None:
@@ -59,11 +79,11 @@ def _wait_for(predicate, *, timeout: float = 2.0, interval: float = 0.005) -> No
 def test_live_start_does_not_block_on_a_slow_first_build() -> None:
     # start() must return before the first (potentially slow, several `gh`
     # calls) build finishes -- otherwise the caller can't bind its HTTP
-    # socket until a full-org sweep completes, and App.page()'s "still
+    # socket until a full-org sweep completes, and the page's "still
     # building" message becomes unreachable dead code.
-    def slow_builder() -> str:
+    def slow_builder():
         time.sleep(0.2)
-        return "model-1"
+        yield "model-1"
 
     live = Live(slow_builder, refresh_seconds=3600)
     started = time.time()
@@ -73,12 +93,30 @@ def test_live_start_does_not_block_on_a_slow_first_build() -> None:
     live.stop()
 
 
+def test_each_stage_is_published_as_it_arrives() -> None:
+    gate = {"release": False}
+
+    def staged():
+        yield "stage-1"
+        while not gate["release"]:
+            time.sleep(0.005)
+        yield "stage-2"
+
+    live = Live(staged, refresh_seconds=3600)
+    live.start()
+    _wait_for(lambda: live.model == "stage-1")
+    assert live.model == "stage-1"  # second stage still blocked, first already readable
+    gate["release"] = True
+    _wait_for(lambda: live.model == "stage-2")
+    live.stop()
+
+
 def test_live_refresh_replaces_the_model_without_blocking_readers() -> None:
-    live = Live(lambda: "first", refresh_seconds=3600)
+    live = Live(lambda: iter(["first"]), refresh_seconds=3600)
     live.start()
     _wait_for(lambda: live.model == "first")
 
-    live._builder = lambda: "second"
+    live._builder = lambda: iter(["second"])
     live.refresh()
     assert live.model == "second"
     live.stop()
@@ -87,16 +125,32 @@ def test_live_refresh_replaces_the_model_without_blocking_readers() -> None:
 def test_a_failed_background_refresh_keeps_serving_the_last_good_model() -> None:
     state = {"n": 0}
 
-    def builder() -> str:
+    def builder():
         state["n"] += 1
         if state["n"] == 1:
-            return "good"
+            yield "good"
+            return
         raise RuntimeError("gh: rate limited")
 
     live = Live(builder, refresh_seconds=0.01)
     live.start()
     _wait_for(lambda: live.model == "good")
-    # One more refresh tick will raise inside the loop; the model must not change.
+    # Later refresh ticks raise inside the loop; the model must not change.
     time.sleep(0.05)
     assert live.model == "good"
+    live.stop()
+
+
+def test_a_stage_that_raises_midway_keeps_the_stage_it_already_published() -> None:
+    # The graph stage landing and the repo sweep then failing must leave the
+    # graph readable, not roll the whole snapshot back to None.
+    def half_broken():
+        yield "graph-only"
+        raise RuntimeError("gh: rate limited during the repo sweep")
+
+    live = Live(half_broken, refresh_seconds=3600)
+    live.start()
+    _wait_for(lambda: live.model == "graph-only")
+    time.sleep(0.05)
+    assert live.model == "graph-only"
     live.stop()

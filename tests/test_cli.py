@@ -31,8 +31,9 @@ def test_missing_subcommand_errors() -> None:
 def test_serve_builds_a_snapshot_then_hands_off_to_the_http_server(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    stub_model = DashboardModel(shelved={}, unshelved=[], graph=GraphModel(), generated_at="ts")
-    monkeypatch.setattr(cli, "build_model", lambda **_kw: stub_model)
+    stub_model = DashboardModel(graph=GraphModel(), generated_at="ts", complete=True)
+    # build_model is a generator of progressively complete snapshots.
+    monkeypatch.setattr(cli, "build_model", lambda **_kw: iter([stub_model]))
     served = {}
     monkeypatch.setattr(cli, "serve_http", lambda app, **kw: served.update(kw, app=app))
 
