@@ -403,6 +403,73 @@ def _tiles(shelved: dict[str, list[RepoStatus]], unshelved: list[RepoStatus]) ->
     return f'  <div class="tiles">\n{tiles}\n  </div>'
 
 
+def _p0_focus(statuses: list[RepoStatus], org: str) -> str:
+    p0_repos = sorted((s for s in statuses if s.priority("P0") > 0), key=_sort_key)
+    if not p0_repos:
+        return ""
+    total_p0 = sum(s.priority("P0") for s in p0_repos)
+    cards = []
+    for s in p0_repos:
+        count = s.priority("P0")
+        url = f"https://github.com/{html.escape(s.slug)}/issues?q=is%3Aopen+is%3Aissue+label%3Aprio%3AP0"
+        purpose = html.escape(s.purpose) if s.purpose else "(no purpose seam found)"
+        cards.append(
+            f'      <div class="tool p0-card">\n'
+            f'        <div class="name"><a href="{url}">{html.escape(s.name)}</a> '
+            f'<span class="pill crit">{count} P0</span></div>\n'
+            f'        <p class="purpose">{purpose}</p>\n'
+            f'      </div>'
+        )
+    cards_html = "\n".join(cards)
+    issues_suffix = "" if total_p0 == 1 else "s"
+    repos_suffix = "" if len(p0_repos) == 1 else "s"
+    count_str = f"{total_p0} P0 issue{issues_suffix} across {len(p0_repos)} repo{repos_suffix}"
+    return f"""\
+  <section class="shelf p0-focus">
+    <div class="shelf-head">
+      <h2>P0 Priority Focus</h2><span class="count">{count_str}</span>
+      <span class="what">urgent blockers requiring immediate attention</span>
+    </div>
+    <div class="grid">
+{cards_html}
+    </div>
+  </section>"""
+
+
+def _prs_overview(statuses: list[RepoStatus], org: str) -> str:
+    pr_repos = sorted((s for s in statuses if s.open_prs > 0), key=_sort_key)
+    if not pr_repos:
+        return ""
+    total_prs = sum(s.open_prs for s in pr_repos)
+    cards = []
+    for s in pr_repos:
+        count = s.open_prs
+        url = f"https://github.com/{html.escape(s.slug)}/pulls"
+        purpose = html.escape(s.purpose) if s.purpose else "(no purpose seam found)"
+        pr_suffix = "" if count == 1 else "s"
+        cards.append(
+            f'      <div class="tool pr-card">\n'
+            f'        <div class="name"><a href="{url}">{html.escape(s.name)}</a> '
+            f'<span class="pill warn">{count} open PR{pr_suffix}</span></div>\n'
+            f'        <p class="purpose">{purpose}</p>\n'
+            f'      </div>'
+        )
+    cards_html = "\n".join(cards)
+    prs_suffix = "" if total_prs == 1 else "s"
+    repos_suffix = "" if len(pr_repos) == 1 else "s"
+    count_str = f"{total_prs} open PR{prs_suffix} across {len(pr_repos)} repo{repos_suffix}"
+    return f"""\
+  <section class="shelf prs-overview">
+    <div class="shelf-head">
+      <h2>Open Pull Requests</h2><span class="count">{count_str}</span>
+      <span class="what">active work in flight across the fleet</span>
+    </div>
+    <div class="grid">
+{cards_html}
+    </div>
+  </section>"""
+
+
 def render_org_page(
     shelved: dict[str, list[RepoStatus]],
     unshelved: list[RepoStatus],
@@ -423,11 +490,16 @@ def render_org_page(
     all_statuses = [s for group in shelved.values() for s in group] + unshelved
     explore_html = _explore(all_statuses)
     explore_block = f"\n\n{explore_html}" if explore_html else ""
-    # Goals first, then priority, then the shelves: what the fleet is trying
-    # to finish, what to pick up next, then what it is made of.
+    # Goals first, then P0 focus, open PRs, priority backlog, then the shelves:
+    # what the fleet is trying to finish, urgent blockers, in-flight work, next candidates.
     lead = "".join(
         f"\n\n{section}"
-        for section in (_goals(all_statuses), _priorities(all_statuses, org, governed))
+        for section in (
+            _goals(all_statuses),
+            _p0_focus(all_statuses, org),
+            _prs_overview(all_statuses, org),
+            _priorities(all_statuses, org, governed),
+        )
         if section
     )
 

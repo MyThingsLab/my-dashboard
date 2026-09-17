@@ -115,6 +115,10 @@ a.pill:hover { background: var(--line); color: var(--ink); }
 .pill.goal { background: var(--good-bg); color: var(--good); }
 ul.milestones { font-size: .8rem; color: var(--muted); margin: 0; padding-left: 1.1rem; }
 
+/* p0 focus & prs overview */
+section.p0-focus .tool.p0-card { border-left: 3.5px solid var(--crit); }
+section.prs-overview .tool.pr-card { border-left: 3.5px solid var(--warn); }
+
 footer {
   margin-top: 2rem; border-top: 1px solid var(--line);
   padding-top: .8rem; font-size: .78rem; color: var(--muted);
