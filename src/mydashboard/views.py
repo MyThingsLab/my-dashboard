@@ -406,15 +406,16 @@ def goal_focus_page(model: DashboardModel, goal_slug: str | None = None) -> str:
             is_done = (pct == 100) or (
                 total > 0 and (idx / len(selected.done_when)) <= (closed / total)
             )
-            marker = "✓" if is_done else "○"
+            marker = "[✓]" if is_done else "[○]"
             cls = "checked" if is_done else "pending"
             done_items.append(
-                f'<li class="milestone-item {cls}"><span>{marker}</span> '
+                f'<li class="milestone-item {cls}"><span class="mono">{marker}</span> '
                 f"<span>{html.escape(item)}</span></li>"
             )
         done_when_html = f'<ul class="milestones-list">{"".join(done_items)}</ul>'
     else:
         done_when_html = '<p class="callout plain">no done_when criteria specified</p>'
+
 
     parts = "".join(
         f'<a class="pill mono" href="{html.escape(p.url)}">{html.escape(p.repo)} '
