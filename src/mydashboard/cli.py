@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -8,7 +9,13 @@ from pathlib import Path
 from mythings.engine import build_engine_from_args
 from mythings.ledger import Ledger
 
+from mydashboard.ask import AskStore, wait_for_decision
 from mydashboard.dashboard import DEFAULT_SITE, Dashboard, RenderResult, StatusResult
+from mydashboard.fleet import ORG
+from mydashboard.live import Live, build_model
+from mydashboard.server import App
+from mydashboard.server import serve as serve_http
+from mydashboard.shelves import load_shelves
 
 _ENGINES = ("noop", "claude-cli")
 _REMOTE_RE = re.compile(r"github\.com[:/](?P<slug>[^/]+/[^/]+?)(?:\.git)?$")
@@ -84,6 +91,33 @@ def main(argv: list[str] | None = None) -> int:
     status.add_argument("--ledger", type=Path, default=Path(".mythings/ledger.jsonl"))
     status.add_argument("--out", type=Path, default=None, help="write the card to a file")
 
+    serve = sub.add_parser(
+        "serve", help="serve a live, interactive graph of the fleet (read-only view + ASK panel)"
+    )
+    serve.add_argument("--org", default=ORG, help="GitHub org to enumerate")
+    serve.add_argument(
+        "--workspace", type=Path, default=None, help="fleet workspace root with sibling checkouts"
+    )
+    serve.add_argument("--shelves", type=Path, default=None, help="override shelves.toml")
+    serve.add_argument(
+        "--workflows", type=Path, default=None, help="override my-pipeline workflows.json"
+    )
+    serve.add_argument("--ledger", type=Path, default=Path(".mythings/ledger.jsonl"))
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8010)
+    serve.add_argument(
+        "--refresh-seconds", type=float, default=300.0, help="how often to rebuild the snapshot"
+    )
+
+    ask = sub.add_parser(
+        "ask",
+        help="$MYTHINGS_ASK_CMD-compatible: block until a human decides via `mydashboard serve`",
+    )
+    ask.add_argument("--ledger", type=Path, required=True)
+    ask.add_argument("--timeout", type=float, default=330.0)
+    ask.add_argument("--action-kind", required=True)
+    ask.add_argument("--payload-json", default="{}")
+
     args = parser.parse_args(argv)
 
     if args.cmd == "render":
@@ -91,6 +125,29 @@ def main(argv: list[str] | None = None) -> int:
         result = dashboard.render(summarize=args.summarize, no_pr=args.no_pr)
         print(_render_result(result))
         return 1 if result.outcome == "failure" else 0
+
+    if args.cmd == "serve":
+        shelving = load_shelves(args.shelves)
+        live = Live(
+            lambda: build_model(
+                org=args.org,
+                workspace=args.workspace,
+                shelving=shelving,
+                workflows_path=args.workflows,
+            ),
+            refresh_seconds=args.refresh_seconds,
+        )
+        live.start()
+        asks = AskStore(args.ledger.parent / "asks")
+        serve_http(App(live, asks), host=args.host, port=args.port)
+        return 0
+
+    if args.cmd == "ask":
+        store = AskStore(args.ledger.parent / "asks")
+        payload = json.loads(args.payload_json)
+        pending = store.create(action_kind=args.action_kind, payload=payload, timeout=args.timeout)
+        allowed = wait_for_decision(store, pending.id, timeout=args.timeout)
+        return 0 if allowed else 1
 
     slug = args.repo or _derive_slug(args.path)
     org, name = slug.split("/", 1)
