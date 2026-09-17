@@ -388,11 +388,17 @@ def goal_focus_page(model: DashboardModel, goal_slug: str | None = None) -> str:
         links = []
         for g in model.goals:
             cls = "active" if g.slug == selected.slug else ""
+            gc, gt = g.progress()
+            gp = round(100 * gc / gt) if gt else 0
             quoted_slug = quote(g.slug, safe="")
             links.append(
-                f'<a href="/goal?slug={quoted_slug}" class="{cls}">{html.escape(g.slug)}</a>'
+                f'<a href="/goal?slug={quoted_slug}" class="{cls}">'
+                f"{html.escape(g.slug)} <span class=\"zero\">({gc}/{gt} · {gp}%)</span></a>"
             )
-        switcher = f'<div class="goal-switcher">{"".join(links)}</div>'
+        switcher = (
+            f'<div class="goal-switcher" style="margin-bottom:1.25rem;">'
+            f'{"".join(links)}</div>'
+        )
 
     closed, total = selected.progress()
     pct = round(100 * closed / total) if total else 0
@@ -415,7 +421,6 @@ def goal_focus_page(model: DashboardModel, goal_slug: str | None = None) -> str:
         done_when_html = f'<ul class="milestones-list">{"".join(done_items)}</ul>'
     else:
         done_when_html = '<p class="callout plain">no done_when criteria specified</p>'
-
 
     parts = "".join(
         f'<a class="pill mono" href="{html.escape(p.url)}">{html.escape(p.repo)} '
@@ -505,16 +510,62 @@ def goal_focus_page(model: DashboardModel, goal_slug: str | None = None) -> str:
 {_section("Goal Tasks", f"{len(selected.open_issues)} open issue(s) linked to this goal")}
 {issues_block}
 """
+
+    portfolio_rows = []
+    for g in model.goals:
+        gc, gt = g.progress()
+        gp = round(100 * gc / gt) if gt else 0
+        gv = g.verdict()
+        gtone = _GOAL_VERDICT_TONE.get(gv, "")
+        qslug = quote(g.slug, safe="")
+        focus_btn = (
+            f'<a class="btn" href="/goal?slug={qslug}">Focus</a>'
+            if g.slug != selected.slug
+            else '<span class="pill good">Active Focus</span>'
+        )
+        portfolio_rows.append(
+            f'<tr><td class="name"><a href="/goal?slug={qslug}">'
+            f"goal/{html.escape(g.slug)}</a></td>"
+            f'<td>{_pill(gv.replace("_", " "), gtone)}</td>'
+            f'<td class="num">{gc}/{gt} ({gp}%)</td>'
+            f'<td class="num">{len(g.parts)} repos</td>'
+            f'<td>{html.escape(g.due_on or "—")}</td>'
+            f"<td>{focus_btn}</td></tr>"
+        )
+
+    portfolio_table = f"""\
+{_section("All Org Goals & Milestones", f"{len(model.goals)} cross-repo objective(s)")}
+<div class="table-wrap" style="margin-bottom:1.5rem;">
+  <table class="grid-table">
+    <thead>
+      <tr>
+        <th>Goal Milestone</th>
+        <th>Status Verdict</th>
+        <th>Progress</th>
+        <th>Participating Repos</th>
+        <th>Due Date</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {"".join(portfolio_rows)}
+    </tbody>
+  </table>
+</div>
+"""
     cards = "\n".join(goal_card(g) for g in model.goals)
-    all_goals = (
-        f'{_section("All Active Goals", f"{len(model.goals)} goal(s) in org")}'
+    all_cards = (
+        f'{_section("Goal Milestone Cards", "detailed card view")}'
         f'<div class="grid goals">{cards}</div>'
     )
     return (
         _section("Goal Focus", "enforced single-goal milestone execution")
         + hero_html
-        + all_goals
+        + portfolio_table
+        + all_cards
     )
+
+
 
 
 def goals_page(model: DashboardModel, goal_slug: str | None = None) -> str:

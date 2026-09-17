@@ -227,3 +227,31 @@ def test_queue_json_reports_pipeline_stages(tmp_path: Path) -> None:
     assert payload["stages"][1]["stage"] == "llm_queue"
     assert "core#105" in payload["stages"][1]["tasks"]
 
+
+def test_multi_goal_switcher_and_portfolio_table(tmp_path: Path) -> None:
+    g1 = GoalView(
+        goal_id="goal/cad-foundation",
+        done_when=("done1",),
+        parts=(GoalPart(repo="r1", open_issues=1, closed_issues=1, url="https://x/1"),),
+    )
+    g2 = GoalView(
+        goal_id="goal/deps-graph",
+        done_when=("done2",),
+        parts=(GoalPart(repo="r2", open_issues=2, closed_issues=0, url="https://x/2"),),
+    )
+    model = _model(goals=(g1, g2))
+    app = _app(model, tmp_path)
+
+    # Default to first goal
+    page1 = app.page("/goal").decode("utf-8")
+    assert "cad-foundation" in page1
+    assert "deps-graph" in page1
+    assert "All Org Goals &amp; Milestones" in page1
+    assert 'href="/goal?slug=deps-graph"' in page1
+
+    # Selected goal via query
+    page2 = app.page("/goal", "slug=deps-graph").decode("utf-8")
+    assert "goal/deps-graph" in page2
+    assert "done2" in page2
+
+
